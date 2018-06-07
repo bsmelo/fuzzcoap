@@ -1,8 +1,8 @@
 def get_target_info_list(target_name, aut_host, aut_port):
     # USER: user home directory
-    USER_DIR = "/home/bruno"
+    USER_DIR = "/home/vagrant"
     # USER: base directory where the target applications are located
-    BASE_DIR = "%s/Dropbox/coap-apps" % (USER_DIR)
+    BASE_DIR = "%s/coap-apps" % (USER_DIR)
 
     # USER: example of a user-defined list of strings to be used against a specific SUT.
     # This example contains relevant strings for Resource Directory targets, and is used against the txthings-rd SUT
