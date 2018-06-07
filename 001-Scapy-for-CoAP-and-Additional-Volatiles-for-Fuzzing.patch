@@ -1,0 +1,729 @@
+diff --git a/scapy/contrib/coap.py b/scapy/contrib/coap.py
+index 939aa53..5f51001 100644
+--- a/scapy/contrib/coap.py
++++ b/scapy/contrib/coap.py
+@@ -65,6 +65,7 @@ coap_options = ({
+                     3: "Uri-Host",
+                     4: "ETag",
+                     5: "If-None-Match",
++                    6: "Observe",
+                     7: "Uri-Port",
+                     8: "Location-Path",
+                     11: "Uri-Path",
+@@ -73,6 +74,9 @@ coap_options = ({
+                     15: "Uri-Query",
+                     17: "Accept",
+                     20: "Location-Query",
++                    23: "Block2",
++                    27: "Block1",
++                    28: "Size2",
+                     35: "Proxy-Uri",
+                     39: "Proxy-Scheme",
+                     60: "Size1"
+@@ -82,6 +86,7 @@ coap_options = ({
+                     "Uri-Host": 3,
+                     "ETag": 4,
+                     "If-None-Match": 5,
++                    "Observe": 6,
+                     "Uri-Port": 7,
+                     "Location-Path": 8,
+                     "Uri-Path": 11,
+@@ -90,6 +95,9 @@ coap_options = ({
+                     "Uri-Query": 15,
+                     "Accept": 17,
+                     "Location-Query": 20,
++                    "Block2": 23,
++                    "Block1": 27,
++                    "Size2": 28,
+                     "Proxy-Uri": 35,
+                     "Proxy-Scheme": 39,
+                     "Size1": 60
+@@ -97,8 +105,6 @@ coap_options = ({
+ 
+ 
+ def _get_ext_field_size(val):
+-    if val >= 15:
+-        warning("Invalid Option Delta or Length")
+     if val == 14:
+         return 2
+     if val == 13:
+@@ -115,12 +121,14 @@ def _get_len_ext_size(pkt):
+ 
+ 
+ def _get_abs_val(val, ext_val):
+-    if val >= 15:
+-        warning("Invalid Option Length or Delta %d" % val)
+-    if val == 14:
+-        return 269 + struct.unpack('H', ext_val)[0]
+-    if val == 13:
+-        return 13 + struct.unpack('B', ext_val)[0]
++    try:
++        if val == 14:
++            return 269 + struct.unpack('H', ext_val)[0]
++        if val == 13:
++            return 13 + struct.unpack('B', ext_val)[0]
++    except struct.error:
++        #traceback.print_exc(limit=1)
++        pass
+     return val
+ 
+ 
+@@ -137,15 +145,23 @@ class _CoAPOpt(Packet):
+ 
+     @staticmethod
+     def _populate_extended(val):
+-        if val >= 269:
+-            return struct.pack('H', val - 269), 14
+-        if val >= 13:
+-            return struct.pack('B', val - 13), 13
++        try:
++            if val >= 269:
++                return struct.pack('H', val - 269), 14
++            if val >= 13:
++                return struct.pack('B', val - 13), 13
++        except struct.error:
++            #traceback.print_exc(limit=1)
++            pass
+         return None, val
+ 
+     def do_build(self):
+         self.delta_ext, self.delta = self._populate_extended(self.delta)
+-        self.len_ext, self.len = self._populate_extended(len(self.opt_val))
++        try:
++            self.len_ext, self.len = self._populate_extended(len(self.opt_val))
++        except TypeError:
++            #traceback.print_exc(limit=1)
++            self.len_ext, self.len = self._populate_extended(0)
+ 
+         return Packet.do_build(self)
+ 
+@@ -177,7 +193,13 @@ class _CoAPOptsField(StrField):
+         while isinstance(o, _CoAPOpt):
+             cur_delta += _get_abs_val(o.delta, o.delta_ext)
+             # size of this option in bytes
+-            u = 1 + len(o.opt_val) + len(o.delta_ext) + len(o.len_ext)
++            try:
++                u = 1 + len(o.opt_val) + len(o.delta_ext) + len(o.len_ext)
++            except TypeError:
++                # TypeError: object of type 'NoneType' has no len()
++                # Empty Option Value
++                #traceback.print_exc(limit=1)
++                u = 1
+             opts.append((u, cur_delta, o.opt_val))
+             o = o.payload
+         return opts
+@@ -192,13 +214,11 @@ class _CoAPOptsField(StrField):
+             else:
+                 opt_lst.append(o)
+         opt_lst.sort(key=lambda o:o[0])
+-
+         opts = _CoAPOpt(delta=opt_lst[0][0], opt_val=opt_lst[0][1])
+         high_opt = opt_lst[0][0]
+         for o in opt_lst[1:]:
+             opts = opts / _CoAPOpt(delta=o[0] - high_opt, opt_val=o[1])
+             high_opt = o[0]
+-
+         return str(opts)
+ 
+ class _CoAPPaymark(StrField):
+diff --git a/scapy/packet.py b/scapy/packet.py
+index 588d9fb..5922bb7 100644
+--- a/scapy/packet.py
++++ b/scapy/packet.py
+@@ -836,7 +836,10 @@ class Packet(BasePacket):
+         return self.payload.hashret()
+     def answers(self, other):
+         """DEV: true if self is an answer from other"""
+-        if other.__class__ == self.__class__:
++        if self.__class__.__name__ == 'CoAP':
++            # TODO: Should match token or msg_id
++            return True
++        elif other.__class__ == self.__class__:
+             return self.payload.answers(other.payload)
+         return 0
+ 
+diff --git a/scapy/sendrecv.py b/scapy/sendrecv.py
+index 1d0de06..1bc7c4f 100644
+--- a/scapy/sendrecv.py
++++ b/scapy/sendrecv.py
+@@ -437,13 +437,13 @@ def __sr_loop(srfunc, pkts, prn=lambda x:x[1].summary(), prnfail=lambda x:x.summ
+             n += len(res[0])+len(res[1])
+             r += len(res[0])
+             if verbose > 1 and prn and len(res[0]) > 0:
+-                msg = "RECV %i:" % len(res[0])
++                msg = "RECV %i:" % count
+                 print  "\r"+ct.success(msg),
+                 for p in res[0]:
+                     print col(prn(p))
+                     print " "*len(msg),
+             if verbose > 1 and prnfail and len(res[1]) > 0:
+-                msg = "fail %i:" % len(res[1])
++                msg = "fail %i:" % count
+                 print "\r"+ct.fail(msg),
+                 for p in res[1]:
+                     print col(prnfail(p))
+diff --git a/scapy/volatile.py b/scapy/volatile.py
+index 73892a7..e009cc0 100644
+--- a/scapy/volatile.py
++++ b/scapy/volatile.py
+@@ -73,13 +73,19 @@ class VolatileValue:
+         if attr == "__setstate__":
+             raise AttributeError(attr)
+         elif attr == "__cmp__":
+-            x = self._fix()
++            if isinstance(self, SeqChoice):
++                x = self._fix(inc_idx=False)
++            else:
++                x = self._fix()
+             def cmp2(y,x=x):
+                 if not isinstance(x, type(y)):
+                     return -1
+                 return x.__cmp__(y)
+             return cmp2
+-        return getattr(self._fix(),attr)
++        if isinstance(self, SeqChoice):
++            return getattr(self._fix(inc_idx=False),attr)
++        else:
++            return getattr(self._fix(),attr)
+     def _fix(self):
+         return None
+ 
+@@ -564,61 +570,245 @@ class RandSingSLong(RandSingNum):
+         RandSingNum.__init__(self, -2**63, 2**63-1)
+ 
+ class RandSingString(RandSingularity):
+-    def __init__(self):
+-        self._choice = [ "",
+-                         "%x",
+-                         "%%",
+-                         "%s",
+-                         "%i",
+-                         "%n",
+-                         "%x%x%x%x%x%x%x%x%x",
+-                         "%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
+-                         "%",
+-                         "%%%",
+-                         "A"*4096,
+-                         b"\x00"*4096,
+-                         b"\xff"*4096,
+-                         b"\x7f"*4096,
+-                         b"\x80"*4096,
+-                         " "*4096,
+-                         "\\"*4096,
+-                         "("*4096,
+-                         "../"*1024,
+-                         "/"*1024,
+-                         "${HOME}"*512,
+-                         " or 1=1 --",
+-                         "' or 1=1 --",
+-                         '" or 1=1 --',
+-                         " or 1=1; #",
+-                         "' or 1=1; #",
+-                         '" or 1=1; #',
+-                         ";reboot;",
+-                         "$(reboot)",
+-                         "`reboot`",
+-                         "index.php%00",
+-                         b"\x00",
+-                         "%00",
+-                         "\\",
+-                         "../../../../../../../../../../../../../../../../../etc/passwd",
+-                         "%2e%2e%2f" * 20 + "etc/passwd",
+-                         "%252e%252e%252f" * 20 + "boot.ini",
+-                         "..%c0%af" * 20 + "etc/passwd",
+-                         "..%c0%af" * 20 + "boot.ini",
+-                         "//etc/passwd",
+-                         r"..\..\..\..\..\..\..\..\..\..\..\..\..\..\..\..\..\boot.ini",
+-                         "AUX:",
+-                         "CLOCK$",
+-                         "COM:",
+-                         "CON:",
+-                         "LPT:",
+-                         "LST:",
+-                         "NUL:",
+-                         "CON:",
+-                         r"C:\CON\CON",
+-                         r"C:\boot.ini",
+-                         r"\\myserver\share",
+-                         "foo.exe:",
+-                         "foo.exe\\", ]
++    _choice = [ "",
++         "%x"*((2**16-1)/2),
++         "%%"*((2**16-1)/2),
++         "%s"*((2**16-1)/2),
++         "%i"*((2**16-1)/2),
++         "%n"*((2**16-1)/2),
++        #"%x%x%x%x%x%x%x%x%x",
++        #"%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s",
++         #"%"*(2**16-1),
++        #"%%%",
++         "A"*(2**16-1),
++         #b"\x00"*(2**16-1),
++         b"\xff"*(2**16-1),
++         #b"\x7f"*(2**16-1),
++         #b"\x80"*(2**16-1),
++         #" "*(2**16-1),
++         "\\"*(2**16-1),
++         #"("*(2**16-1),
++         "../"*((2**16-1)/3),
++         #"/"*(2**16-1),
++         "${HOME}"*((2**16-1)/7),
++         " or 1=1 --",
++         "' or 1=1 --",
++         '" or 1=1 --',
++        #" or 1=1; #",
++        #"' or 1=1; #",
++         '" or 1=1; #',
++         ";reboot;",
++         "$(reboot)",
++         "`reboot`",
++         "index.php%00",
++         #b"\x00",
++         "%00",
++         "\\",
++         "../../../../../../../../../../../../../../../../../etc/passwd",
++         "%2e%2e%2f" * 20 + "etc/passwd",
++         "%252e%252e%252f" * 20 + "boot.ini",
++         "..%c0%af" * 20 + "etc/passwd",
++        #"..%c0%af" * 20 + "boot.ini",
++         "//etc/passwd",
++         r"..\..\..\..\..\..\..\..\..\..\..\..\..\..\..\..\..\boot.ini",
++        #"AUX:",
++         "CLOCK$",
++        #"COM:",
++         "CON:",
++        #"LPT:",
++         "LST:",
++         "NUL:",
++         r"C:\CON\CON",
++         r"C:\boot.ini",
++         r"\\myserver\share",
++         "foo.exe:",
++         "foo.exe\\",
++        "><script>alert(\"XSS\")</script>&",
++        "'';!--\"<XSS>=&{()}",
++        "%s%p%x%d",
++        ".1024d",
++        #"%.2049d",
++        #"%p%p%p%p",
++        "%99999999999s",
++        #"%08x",
++        #"%%20d",
++        #"%%20n",
++        #"%%20x",
++        #"%%20s",
++        "%#0123456x%08x%x%s%p%d%n%o%u%c%h%l%q%j%z%Z%t%i%e%g%f%a%C%S%08x%%",
++        "'||(elt(-3+5,bin(15),ord(10),hex(char(45))))",
++        "||6",
++        #"'||'6",
++        #"(||6)",
++        "%22+or+isnull%281%2F0%29+%2F*",
++        #"%27+OR+%277659%27%3D%277659",
++        #"%22+or+isnull%281%2F0%29+%2F*",
++        #"%27+--+",
++        "Password:*/=1--",
++        "UNI/**/ON SEL/**/ECT",
++        "'; EXECUTE IMMEDIATE 'SEL' || 'ECT US' || 'ER'",
++        #"%27+--+&password=",
++        #"|",
++        #"!",
++        #"(",
++        #")",
++        "%28",
++        "%29",
++        #"&",
++        "%26",
++        #"%21",
++        "%7C",
++        "*|",
++        "%2A%7C",
++        "*(|(mail=*))",
++        "%2A%28%7C%28mail%3D%2A%29%29",
++        "//*",
++        "*/*",
++        "@*",
++        "Roses are [0;31mred[0m, violets are [0;34mblue. Hope you enjoy terminal hue",
++        #"But now...[20Cfor my greatest trick...[8m",
++        #"The quick brown fox... [Beeeep]",
++        "Ṱ̺̺̕o͞ ̷i̲̬͇̪͙n̝̗͕v̟̜̘̦͟o̶̙̰̠kè͚̮̺̪̹̱̤ ̖t̝͕̳̣̻̪͞h̼͓̲̦̳̘̲e͇̣̰̦̬͎ ̢̼̻̱̘h͚͎͙̜̣̲ͅi̦̲̣̰̤v̻͍e̺̭̳̪̰-m̢iͅn̖̺̞̲̯̰d̵̼̟͙̩̼̘̳ ̞̥̱̳̭r̛̗̘e͙p͠r̼̞̻̭̗e̺̠̣͟s̘͇̳͍̝͉e͉̥̯̞̲͚̬͜ǹ̬͎͎̟̖͇̤t͍̬̤͓̼̭͘ͅi̪̱n͠g̴͉ ͏͉ͅc̬̟h͡a̫̻̯͘o̫̟̖͍̙̝͉s̗̦̲.̨̹͈̣",
++        #"̡͓̞ͅI̗̘̦͝n͇͇͙v̮̫ok̲̫̙͈i̖͙̭̹̠̞n̡̻̮̣̺g̲͈͙̭͙̬͎ ̰t͔̦h̞̲e̢̤ ͍̬̲͖f̴̘͕̣è͖ẹ̥̩l͖͔͚i͓͚̦͠n͖͍̗͓̳̮g͍ ̨o͚̪͡f̘̣̬ ̖̘͖̟͙̮c҉͔̫͖͓͇͖ͅh̵̤̣͚͔á̗̼͕ͅo̼̣̥s̱͈̺̖̦̻͢.̛̖̞̠̫̰",
++        #"̗̺͖̹̯͓Ṯ̤͍̥͇͈h̲́e͏͓̼̗̙̼̣͔ ͇̜̱̠͓͍ͅN͕͠e̗̱z̘̝̜̺͙p̤̺̹͍̯͚e̠̻̠͜r̨̤͍̺̖͔̖̖d̠̟̭̬̝͟i̦͖̩͓͔̤a̠̗̬͉̙n͚͜ ̻̞̰͚ͅh̵͉i̳̞v̢͇ḙ͎͟-҉̭̩̼͔m̤̭̫i͕͇̝̦n̗͙ḍ̟ ̯̲͕͞ǫ̟̯̰̲͙̻̝f ̪̰̰̗̖̭̘͘c̦͍̲̞͍̩̙ḥ͚a̮͎̟̙͜ơ̩̹͎s̤.̝̝ ҉Z̡̖̜͖̰̣͉̜a͖̰͙̬͡l̲̫̳͍̩g̡̟̼̱͚̞̬ͅo̗͜.̟",
++        #"̦H̬̤̗̤͝e͜ ̜̥̝̻͍̟́w̕h̖̯͓o̝͙̖͎̱̮ ҉̺̙̞̟͈W̷̼̭a̺̪͍į͈͕̭͙̯̜t̶̼̮s̘͙͖̕ ̠̫̠B̻͍͙͉̳ͅe̵h̵̬͇̫͙i̹͓̳̳̮͎̫̕n͟d̴̪̜̖ ̰͉̩͇͙̲͞ͅT͖̼͓̪͢h͏͓̮̻e̬̝̟ͅ ̤̹̝W͙̞̝͔͇͝ͅa͏͓͔̹̼̣l̴͔̰̤̟͔ḽ̫.͕",
++        "Z̮̞̠͙͔ͅḀ̗̞͈̻̗Ḷ͙͎̯̹̞͓G̻O̭̗̮",
++        #"",
++        "😍",
++        #"👩🏽",
++        #"👾 🙇 💁 🙅 🙆 🙋 🙎 🙍 ",
++        "🐵 🙈 🙉 🙊",
++        #"❤️ 💔 💌 💕 💞 💓 💗 💖 💘 💝 💟 💜 💛 💚 💙",
++        #"✋🏿 💪🏿 👐🏿 🙌🏿 👏🏿 🙏🏿",
++        #"🚾 🆒 🆓 🆕 🆖 🆗 🆙 🏧",
++        #"0️⃣ 1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟",
++        "ヽ༼ຈل͜ຈ༽ﾉ ヽ༼ຈل͜ຈ༽ﾉ", 
++        #"(｡◕ ∀ ◕｡)",
++        #"｀ｨ(´∀｀∩",
++        "__ﾛ(,_,*)",
++        #"・(￣∀￣)・:*:",
++        #"ﾟ･✿ヾ╲(｡◕‿◕｡)╱✿･ﾟ",
++        #",。・:*:・゜’( ☻ ω ☻ )。・:*:・゜’",
++        #"(╯°□°）╯︵ ┻━┻)",  
++        #"(ﾉಥ益ಥ）ﾉ﻿ ┻━┻",
++        #"┬─┬ノ( º _ ºノ)",
++        #"( ͡° ͜ʖ ͡°)",
++        #"Ω≈ç√∫˜µ≤≥÷",
++        "åß∂ƒ©˙∆˚¬…æ",
++        #"œ∑´®†¥¨ˆøπ“‘",
++        #"¡™£¢∞§¶•ªº–≠",
++        #"¸˛Ç◊ı˜Â¯˘¿",
++        #"ÅÍÎÏ˝ÓÔÒÚÆ☃",
++        #"Œ„´‰ˇÁ¨ˆØ∏”’",
++        "`⁄€‹›ﬁﬂ‡°·‚—±",
++        "⅛⅜⅝⅞",
++        "ЁЂЃЄЅІЇЈЉЊЋЌЍЎЏАБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмнопрстуфхцчшщъыьэюя",
++        "٠١٢٣٤٥٦٧٨٩",
++        #"",
++        #"",
++        #"",
++        #"",
++        #"",
++        #"⁰⁴⁵",
++        #"₀₁₂",
++        "⁰⁴⁵₀₁₂",
++        "ด้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็ ด้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็ ด้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็็้้้้้้้้็็็็็้้้้้็็็็",
++        "ثم ن,فس سقطت وبالتحديد،, جزيرتي باستخدام أن دنو. إذ هنا؟ الستار وتنصيب كان. أهّل ايطاليا، بريطانيا-فرنسا قد أخذ. سليمان، إتفاقية بينما يذكر الحدود أي بعد, معاملة بولندا، الإطلاق عل إيو.",
++        #"בְּרֵאשִׁית, בָּרָא אֱלֹהִים, אֵת הַשָּׁמַיִם, וְאֵת הָאָרֶץ",
++        "הָיְתָהtestالصفحات التّحول",
++        "﷽",
++        "ﷺ",
++        "田中さんにあげて下さい",
++        #"パーティーへ行かないか",
++        #"和製漢語",
++        #"部落格",
++        #"사회과학원 어학연구소",
++        #"찦차를 타고 온 펲시맨과 쑛다리 똠방각하",
++        "社會科學院語學研究所",
++        "울란바토르",
++        "𠜎𠜱𠝹𠱓𠱸𠲖𠳏",
++        "˙ɐnbᴉlɐ ɐuƃɐɯ ǝɹolop ʇǝ ǝɹoqɐl ʇn ʇunpᴉpᴉɔuᴉ ɹodɯǝʇ poɯsnᴉǝ op pǝs 'ʇᴉlǝ ƃuᴉɔsᴉdᴉpɐ ɹnʇǝʇɔǝsuoɔ 'ʇǝɯɐ ʇᴉs ɹolop ɯnsdᴉ ɯǝɹo˥",
++        "00˙Ɩ$-",
++        b"\x00"*(2**16-1),
++        b"\x01"*(2**16-1),
++        b"\x02"*(2**16-1),
++        b"\x03"*(2**16-1),
++        b"\x04"*(2**16-1),
++        b"\x05"*(2**16-1),
++        b"\x06"*(2**16-1),
++        b"\x07"*(2**16-1),
++        b"\x08"*(2**16-1),
++        "\t"*(2**16-1),
++        "\n"*(2**16-1),
++        b"\x0b"*(2**16-1),
++        b"\x0c"*(2**16-1),
++        "\r"*(2**16-1),
++        b"\x0e"*(2**16-1),
++        b"\x0f"*(2**16-1),
++        b"\x10"*(2**16-1),
++        b"\x11"*(2**16-1),
++        b"\x12"*(2**16-1),
++        b"\x13"*(2**16-1),
++        b"\x14"*(2**16-1),
++        b"\x15"*(2**16-1),
++        b"\x16"*(2**16-1),
++        b"\x17"*(2**16-1),
++        b"\x18"*(2**16-1),
++        b"\x19"*(2**16-1),
++        b"\x1a"*(2**16-1),
++        b"\x1b"*(2**16-1),
++        b"\x1c"*(2**16-1),
++        b"\x1d"*(2**16-1),
++        b"\x1e"*(2**16-1),
++        b"\x1f"*(2**16-1),
++        " "*(2**16-1),
++        "!"*(2**16-1),
++        "\""*(2**16-1),
++        "#"*(2**16-1),
++        "$"*(2**16-1),
++        "%"*(2**16-1),
++        "&"*(2**16-1),
++        "\'"*(2**16-1),
++        "("*(2**16-1),
++        ")"*(2**16-1),
++        "*"*(2**16-1),
++        "+"*(2**16-1),
++        ","*(2**16-1),
++        "-"*(2**16-1),
++        "."*(2**16-1),
++        "/"*(2**16-1),
++        ":"*(2**16-1),
++        ";"*(2**16-1),
++        "<"*(2**16-1),
++        "="*(2**16-1),
++        ">"*(2**16-1),
++        "?"*(2**16-1),
++        "@"*(2**16-1),
++        "["*(2**16-1),
++        "\\"*(2**16-1),
++        "]"*(2**16-1),
++        "^"*(2**16-1),
++        "_"*(2**16-1),
++        "`"*(2**16-1),
++        "{"*(2**16-1),
++        "|"*(2**16-1),
++        "}"*(2**16-1),
++        "~"*(2**16-1),
++        b"\x7f"*(2**16-1),
++        b"\x80"*(2**16-1), ]
++
++    def __init__(self, size=None, ext_list=None):
++        if ext_list:
++            self._choice.extend(ext_list)
++            self._choice = list(set(self._choice))
++
++        if size is not None:
++            self._size = int(size)
++            if self._size <= 0:
++                self._size = 0
++                self._choice = ['']
++            else:
++                self._choice = [c[:self._size] for c in self._choice]
+ 
+     def __str__(self):
+         return str(self._fix())
+@@ -703,3 +893,236 @@ class CorruptedBits(CorruptedBytes):
+     def _fix(self):
+         return corrupt_bits(self.s, self.p, self.n)
+ 
++
++class RandBinNum(RandNum):
++    """Instances evaluate to random integers (converted to hexadecimal form) in selected range"""
++    def __init__(self, _min, _max):
++        RandNum.__init__(self, _min, _max)
++    def _fix(self):
++        try:
++            # Length between 0-4 bytes (received positive integer)
++            return struct.pack('I', RandNum._fix(self)).rstrip('\x00')
++        except struct.error:
++            # Length of 8 bytes (received negative integer)
++            return struct.pack('l', RandNum._fix(self)).rstrip('\x00')
++
++class RandSingBinNum(RandSingNum):
++    def __init__(self, _min, _max):
++        RandSingNum.__init__(self, _min, _max)
++    def _fix(self):
++        try:
++            # Length between 0-4 bytes (received positive integer)
++            return struct.pack('I', RandSingNum._fix(self)).rstrip('\x00')
++        except struct.error:
++            # Length of 8 bytes (received negative integer)
++            return struct.pack('l', RandSingNum._fix(self)).rstrip('\x00')
++
++class SeqChoice(RandField):
++    def __init__(self, ext_list=None):
++        # Extend with additional values specified in a list
++        if ext_list:
++            self._choice.extend(ext_list)
++        self._choice = list(set(self._choice))
++        self._choice.sort()
++        self._idx = -1
++    def _fix(self, inc_idx=True):
++        if inc_idx:
++            self._idx += 1
++        return self._choice[self._idx % len(self._choice)]
++    def __int__(self):
++        return int(self._fix())
++    def __str__(self):
++        return str(self._fix())
++
++class SeqSingNum(SeqChoice, RandSingNum):
++    def __init__(self, _min, _max, neg=True, overflow_max=True, ext_list=None):
++        RandSingNum.__init__(self, _min, _max)
++        # Extend with negative numbers, randomly picked from 1/3 of the original list (no repetition)
++        if neg:
++            self._choice.extend(n * (-1) for n in random.sample(self._choice, len(self._choice) / 3))
++        # Extend wih additional boundary values around min and max
++        if _min-1 >= 0:
++            self._choice.append(_min-1)
++        if _max+1 >= 0 and overflow_max:
++            self._choice.append(_max+1)
++        SeqChoice.__init__(self, ext_list=ext_list)
++
++class SeqSingBinNum(SeqSingNum):
++    def __init__(self, _min, _max, neg=True, overflow_max=True, ext_list=None):
++        SeqSingNum.__init__(self, _min, _max, neg, overflow_max, ext_list)
++    def _fix(self, inc_idx=True):
++        if inc_idx:
++            self._idx += 1
++        try:
++            # Length between 0-4 bytes (received positive integer)
++            return struct.pack('I', SeqSingNum._fix(self, inc_idx=False)).rstrip('\x00')
++        except struct.error:
++            # Length of 8 bytes (received negative integer)
++            return struct.pack('l', SeqSingNum._fix(self, inc_idx=False)).rstrip('\x00')
++
++class SeqSingString(SeqChoice, RandSingString):
++    def __init__(self, size, ext_list=None):
++        RandSingString.__init__(self, size)
++        SeqChoice.__init__(self, ext_list=ext_list)
++
++class RandSingBin(RandSingularity):
++    def __init__(self, size=None, ext_list=None):
++        if size is None:
++            size = int(RandNumExpo(0.01))
++        self._size = int(size)
++        if self._size <= 0:
++            self._size = 0
++            self._choice = ['']
++        else:
++            pchars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
++            nchars = "".join(map(chr, range(48)+range(58, 65)+range(91, 97)+range(123, 129))) #TODO: Give actually critical unicode chars
++            self._choice = []
++            for nc in nchars:
++                s = ""
++                first_half_size = random.randint(0, self._size - 1)
++                for i in xrange(first_half_size):
++                    s += random.choice(pchars)
++                s += nc
++                for i in xrange(self._size - first_half_size - 1):
++                    s += random.choice(pchars)
++                self._choice.append(s)
++
++class SeqSingBin(SeqChoice, RandSingBin):
++    def __init__(self, size, ext_list=None):
++        RandSingBin.__init__(self, size)
++        SeqChoice.__init__(self, ext_list=ext_list)
++
++##################################################################################################
++# TODO: Move to contrib/coap.py
++##################################################################################################
++
++class RandSingContentFormat(RandSingBinNum):
++    def __init__(self):
++        self._choice = [ 0, #text/plain;charset=utf-8
++                         40, #application/link-format
++                         41, #application/xml
++                         42, #application/octet-stream
++                         47, #application/exi
++                         50, #application/json
++                         60, #application/cbor
++                        ]
++
++class SeqSingContentFormat(SeqSingBinNum, RandSingContentFormat):
++    def __init__(self, ext_list=None):
++        RandSingContentFormat.__init__(self)
++        SeqChoice.__init__(self, ext_list=ext_list)
++
++class RandSingQueryAttribute(RandSingularity):
++    def __init__(self):
++        self._choice = [ "rel",
++                         "anchor",
++                         "rev",
++                         "hreflang",
++                         "media",
++                         "title",
++                         "title*",
++                         "type",
++                         "rt",
++                         "if",
++                         "sz",
++                         "href",
++                         "ct",
++                        ]
++
++class SeqSingQueryAttribute(SeqChoice, RandSingQueryAttribute):
++    def __init__(self, ext_list=None):
++        RandSingQueryAttribute.__init__(self)
++        SeqChoice.__init__(self, ext_list=ext_list)
++
++class RandPrefixString(RandString):
++    def __init__(self, size, prefix):
++        RandString.__init__(self, size, "".join(map(chr, xrange(1,256))))
++        self.prefix = prefix
++    def _fix(self):
++        return str(self.prefix)+'='+RandString._fix(self)
++
++    def __str__(self):
++        return str(self._fix())
++
++class RandSingPrefixString(RandSingString):
++    def __init__(self, size, prefix, ext_list=None):
++        RandSingString.__init__(self, size, ext_list)
++        self.prefix = prefix
++    def _fix(self):
++        return str(self.prefix)+'='+RandSingString._fix(self)
++
++    def __str__(self):
++        return str(self._fix())
++
++class SeqSingPrefixString(SeqSingString):
++    def __init__(self, size, prefix, ext_list=None):
++        SeqSingString.__init__(self, size, ext_list=None)
++        self.prefix = prefix
++        self.prefix_idx = -1
++    def _fix(self):
++        if isinstance(self.prefix, SeqChoice):
++            self.prefix_idx += 1
++            inc_prefix = not bool(self.prefix_idx % len(self._choice))
++            return str(self.prefix._fix(inc_idx=inc_prefix))+'='+SeqSingString._fix(self, inc_idx=True)
++        return str(self.prefix)+'='+SeqSingString._fix(self, inc_idx=True)
++
++    def __str__(self):
++        return str(self._fix())
++
++class RandSingBinPortNumber(RandSingBinNum):
++    def __init__(self):
++        # 6LoWPAN's compressed UDP port space [RFC4944, RFC6282]
++        self._choice = [ p for p in xrange(61615, 61633) ]
++        self._choice.extend([ 21, #FTP
++                         22, #SSH
++                         23, #Telnet
++                         25, #SMTP
++                         53, #DNS
++                         80, #HTTP
++                         443, #HTTPS
++                         445, #SMB
++                         110, #POP3
++                         111, #RPC
++                         135, #Windows RPC
++                         137, 138, 139, #NetBIOS
++                         1433, 1434, #SQL Server
++                         3306, #MySQL
++                         8080, #Alternative HTTP
++                        ])
++
++class SeqSingBinPortNumber(SeqSingBinNum, RandSingBinPortNumber):
++    def __init__(self, ext_list=None):
++        RandSingBinPortNumber.__init__(self)
++        SeqChoice.__init__(self, ext_list=ext_list)
++
++class RandBlock(RandNum):   
++    def __init__(self):
++        RandNum.__init__(self, 0, 2**(3*8 - 4) - 1)
++        self.suffix = RandNum(0, 2**4-1)
++    def _fix(self):
++        # Length between 0-4 bytes (received positive integer)
++        return struct.pack('I', (RandNum._fix(self) << 4) | self.suffix ).rstrip('\x00')
++
++class RandSingBlock(RandSingNum):
++    def __init__(self):
++        RandSingNum.__init__(self, 0, 2**(3*8 - 4) - 1)
++        temp_choice = []
++        for suffix in xrange(0, 2**4):
++            temp_choice.extend([ (choice << 4) | suffix for choice in self._choice ])
++        self._choice = temp_choice
++    def _fix(self):
++        # Length between 0-4 bytes (received positive integer)
++        return struct.pack('I', RandSingNum._fix(self) ).rstrip('\x00')
++
++class SeqSingBlock(SeqSingNum):
++    def __init__(self, ext_list=None):
++        SeqSingNum.__init__(self, 0, 2**(3*8 - 4) - 1, neg=False, overflow_max=True, ext_list=ext_list)
++        temp_choice = []
++        for suffix in xrange(0, 2**4):
++            temp_choice.extend([ (choice << 4) | suffix for choice in self._choice ])
++        self._choice = temp_choice
++        self._choice = list(set(self._choice))
++        self._choice.sort()
++    def _fix(self):
++        # Length between 0-4 bytes (received positive integer)
++        return struct.pack('I', SeqSingNum._fix(self) ).rstrip('\x00')
+\ No newline at end of file
