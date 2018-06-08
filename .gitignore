@@ -3,6 +3,7 @@
 #*.conf
 *.json
 *.ods#
+output.html
 log.out
 log4j.configuration
 test.log

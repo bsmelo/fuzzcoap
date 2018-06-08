@@ -196,8 +196,8 @@ class Target(object):
         response = None
 
         self.log("Extracting paths from AUT...")
-        self.log(str(self.opt_ext_list["string"]))
-        self.summaryfile.write("AUT-specific Strings:\n"+str(self.opt_ext_list["string"])+'\n')
+        self.log("AUT-specific Strings (user-defined):\n"+str(self.opt_ext_list["string"]))
+        self.summaryfile.write("AUT-specific Strings (user-defined):\n"+str(self.opt_ext_list["string"])+'\n')
 
         # Comment below for Contiki or Canopus hack
         client = HelperClient(server=(self.aut_host, self.aut_port))
@@ -229,10 +229,10 @@ class Target(object):
         self.known_paths = list( set(self.known_paths) )
         time.sleep(1)
 
-        self.log(str(self.known_paths))
+        self.log("Extracted Paths:\n"+str(self.known_paths))
         self.summaryfile.write("Extracted Paths:\n"+str(self.known_paths)+'\n')
 
-        self.log(str(extracted_strings))
+        self.log("Extracted Strings:\n"+str(extracted_strings)+'\n')
         self.summaryfile.write("Extracted Strings:\n"+str(extracted_strings)+'\n\n\n')
 
         time.sleep(1)

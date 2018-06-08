@@ -2,12 +2,58 @@
 FuzzCoAP is ...TODO description.
 
 ## Installation
+### The easy way - Vagrant VM
+Note: The text below is based on [RIOT OS' Vagrant README.md](https://github.com/RIOT-OS/RIOT/blob/2018.04-branch/dist/tools/vagrant/README.md).
+
+This repository includes a [Vagrantfile](Vagrantfile) to download and control a pre-configured Linux virtual machine (VM) based on an Ubuntu Server 16.04 (64-bit) image that contains all samples used in our research (see our [Target List](target_list.py)), with their respective dependencies and build systems installed. In that VM, not only the samples are ready-to-use, but FuzzCoAP as well. Using this method you will be able to jump to [Using FuzzCoAP](#using-fuzzcoap).
+
+#### Requirements
+Make sure your system satisfies the latest version of all following dependencies:
+* [VirtualBox](https://www.virtualbox.org/wiki/Downloads)
+* [VirtualBox Extension Pack](https://www.virtualbox.org/wiki/Downloads)
+* [Vagrant](https://www.vagrantup.com/downloads.html)
+
+#### General usage
+1. Clone this repository:
+```sh
+$ git clone https://github.com/bsmelo/fuzzcoap
+```
+The following commands must be run from the FuzzCoAP root directory on the host system.
+
+
+2. Start up the virtual machine and download the Ubuntu image --- which might take a [good] while...:
+```sh
+$ vagrant up
+```
+
+3. Login to the VM as the vagrant user:
+```
+vagrant ssh
+```
+
+You can now jump to [Using FuzzCoAP](#using-fuzzcoap).
+
+- To gracefully shut down the VM:
+```
+vagrant halt
+```
+
+- To reset the VM to the default state:
+```
+vagrant destroy
+```
+
+#### Inside the VM
+Once logged in to the VM via `vagrant ssh` you can find the FuzzCoAP root directory in your working directory (on the guest system). This is a shared directory and stays synchronized with your FuzzCoAP directory on the host system. All changes made will be mirrored from the host system to the guest system and vice versa. Just start fuzzing by jumping to [Using FuzzCoAP](#using-fuzzcoap).
+
+
+### The hard way - Host/Native Machine
 First of all, clone this repository:
 ```sh
 $ git clone https://github.com/bsmelo/fuzzcoap
 ```
 
-### Dependencies
+#### Dependencies
 [CoAPthon](https://github.com/Tanganelli/CoAPthon), to perform consistent `GET .well-known/core`:
 ```sh
 $ git clone https://github.com/Tanganelli/CoAPthon.git
@@ -36,6 +82,8 @@ $ sudo python setup.py install
 ```
 
 You should be good to go.
+
+
 
 ## Using FuzzCoAP
 ### Fuzzing
