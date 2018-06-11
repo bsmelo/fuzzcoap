@@ -2,7 +2,7 @@
 FuzzCoAP is ...TODO description.
 
 ## Installation
-### The easy way - Vagrant VM
+### Option 1: Vagrant VM
 Note: The text below is based on [RIOT OS' Vagrant README.md](https://github.com/RIOT-OS/RIOT/blob/2018.04-branch/dist/tools/vagrant/README.md).
 
 This repository includes a [Vagrantfile](Vagrantfile) to download and control a pre-configured Linux virtual machine (VM) based on an Ubuntu Server 16.04 (64-bit) image that contains all samples used in our research (see our [Target List](target_list.py)), with their respective dependencies and build systems installed. In that VM, not only the samples are ready-to-use, but FuzzCoAP as well. Using this method you will be able to jump to [Using FuzzCoAP](#using-fuzzcoap).
@@ -47,7 +47,7 @@ vagrant destroy
 Once logged in to the VM via `vagrant ssh` you can find the FuzzCoAP root directory in your working directory (on the guest system). This is a shared directory and stays synchronized with your FuzzCoAP directory on the host system. All changes made will be mirrored from the host system to the guest system and vice versa. Just start fuzzing by jumping to [Using FuzzCoAP](#using-fuzzcoap).
 
 
-### The hard way - Host/Native Machine
+### Option 2: Host/Native Machine
 First of all, clone this repository:
 ```sh
 $ git clone https://github.com/bsmelo/fuzzcoap
