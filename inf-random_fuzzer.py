@@ -15,29 +15,6 @@ from coap_target import Target
 from fuzzer_models import *
 from utils import *
 
-##################################################################################################
-# Config
-##################################################################################################
-##### Debug parameters
-RUN_ALL = False
-
-##### Probing parameters
-# Timing (in seconds)
-INTERVAL_BETWEEN_REQUESTS = 0.00001
-REQUEST_TIMEOUT = 0.00005
-# Number of Test Cases (TCs) to run for each packet model type
-HEADER_MODEL_TC_NUM = 10000
-OPTION_MODEL_TC_NUM = 50
-
-MAX_MODEL_CRASH = 50
-RESPONSE_OPTIONS = [ "Location-Path", "Max-Age", "Location-Query" ]
-MAX_MODEL_CRASH_RESPONSE_OPTION = 10
-PROXY_OPTIONS = [ "Proxy-Uri", "Proxy-Scheme" ]
-MAX_MODEL_CRASH_PROXY_OPTION = 20
-
-# TODO: Document this
-RESERVED_LIST = ["Observe", "Uri-Port", "Content-Format", "Max-Age", "Accept", "Size2", "Size1"]
-
 def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_PORT,
     aut_host=COAP_AUT_DEFAULT_DST_HOST , aut_port=COAP_AUT_DEFAULT_DST_PORT, aut_src_port=COAP_AUT_DEFAULT_SRC_PORT):
     my_seed = ord(os.urandom(1))
@@ -102,12 +79,8 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
         smodel_num = 0
         for k,v in mf.fuzz_models[target_name][o].iteritems():
             tc_num += v[1]
-            if ((o == 'header') or \
-                ((o in RESERVED_LIST) and ('rs' not in k)) or \
-                ((option_model[o][1] == "string") and ('ss' not in k)) or \
-                ((o not in RESERVED_LIST) and (option_model[o][1] != "string") and ('Pss' not in k) and ('Sss' not in k))):
-                stc_num += v[1]
-                smodel_num += 1
+            stc_num += v[1]
+            smodel_num += 1
         models.append(len(mf.fuzz_models[target_name][o]))
         tcs.append(tc_num)
         optimum_models.append(smodel_num)
@@ -151,16 +124,12 @@ class Fuzzer():
         self.info = {}
         self.total_tc = 0
 
-    def get_total_tc(self, run_all=True):
+    def get_total_tc(self):
         tc_num = 0
         for target_name in self.fuzz_models.keys():
             for option_name in self.fuzz_models[target_name].keys():
                 for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
-                    if run_all or ((option_name == 'header') or \
-                        ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                        ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                        ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))):
-                        tc_num += model[1]
+                    tc_num += model[1]
 
         return tc_num
 
@@ -201,19 +170,19 @@ class Fuzzer():
 
         self.fuzz_models[target_name]['header']['HO'] = [fuzz(CoAP(token=RandBin(RandNum(0, 15)),
             options=RandEnumKeys(self.target_paths[target_name]), paymark='')
-        ), HEADER_MODEL_TC_NUM] # generates weird packets fuzzing only the header fields, directed to the known paths
+        ), K_INF_RANDOM] # generates weird packets fuzzing only the header fields, directed to the known paths
         self.fuzz_models[target_name]['header']['EP'] = [fuzz(CoAP(token=RandBin(RandNum(0, 15)),
             options=RandEnumKeys(self.target_paths[target_name]), paymark=''))/Raw(load=RandEnumKeys(
             [ RandBin(i) for i in SeqSingNum(0, 2**16-1 - (20+8) - (4+15+longest_uri_num_paths+longest_uri_len_ext+longest_uri_len), neg=False, overflow_max=False)._choice ]
-        )), HEADER_MODEL_TC_NUM] # adds weird options creating packets of *any* size to the A packets
+        )), K_INF_RANDOM] # adds weird options creating packets of *any* size to the A packets
         self.fuzz_models[target_name]['header']['RP'] = [fuzz(CoAP(token=RandBin(RandNum(0, 8)),
             options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff'))/Raw(load=RandEnumKeys(
             [ RandBin(i) for i in SeqSingNum(0, 2**16-1 - (20+8) - (4+8+longest_uri_num_paths+longest_uri_len_ext+longest_uri_len+1), neg=False, overflow_max=False)._choice ]
-        )), HEADER_MODEL_TC_NUM] # adds weird payloads creating packets of *any* size to the A packets
+        )), K_INF_RANDOM] # adds weird payloads creating packets of *any* size to the A packets
 
         self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name]['header'])
 
-        self.total_tc = self.get_total_tc(run_all=RUN_ALL)
+        self.total_tc = self.get_total_tc()
 
 ##################################################################################################
 # Fuzzer Object: Running Functions
@@ -261,33 +230,25 @@ class Fuzzer():
 
         return opt_tc
 
-    def run_option(self, target_name, option_name, run_all=True):
+    def run_option(self, target_name, option_name):
         start = time.time()
 
         opt_tc = 1
         self.total_opt_tc = 0
         for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
-            if run_all or ( ((option_name == 'header') or \
-                ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
-                self.total_opt_tc += model[1]
+            self.total_opt_tc += model[1]
 
         initial_opt_crash_count = self.targets[target_name].crash_count
         for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
             target_path = None
-            if run_all or ( ((option_name == 'header') or \
-                ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
-                msg = "Fuzzing %s | Model ID: %s" %\
-                    ('Header' if option_name == 'header' else 'Option: %s' % option_name,
-                    model_id)
-                if option_name != 'header' and ("KU" in model_id):
-                    target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
-                    msg += " | Target Resource: %s" % target_path
+            msg = "Fuzzing %s | Model ID: %s" %\
+                ('Header' if option_name == 'header' else 'Option: %s' % option_name,
+                model_id)
+            if option_name != 'header' and ("KU" in model_id):
+                target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
+                msg += " | Target Resource: %s" % target_path
 
-                opt_tc = self.run_model(target_name, option_name, model_id, opt_tc, msg, target_path)
+            opt_tc = self.run_model(target_name, option_name, model_id, opt_tc, msg, target_path)
 
 
         crash_msg = "Crashes for %s: %d" %\

@@ -15,28 +15,6 @@ from coap_target import Target
 from fuzzer_models import *
 from utils import *
 
-##################################################################################################
-# Config
-##################################################################################################
-##### Debug parameters
-RUN_ALL = False
-
-##### Probing parameters
-# Timing (in seconds)
-INTERVAL_BETWEEN_REQUESTS = 0.00001
-REQUEST_TIMEOUT = 0.00005
-# Number of Test Cases (TCs) to run for each packet model type
-HEADER_MODEL_TC_NUM = 100
-
-MAX_MODEL_CRASH = 5
-RESPONSE_OPTIONS = [ "Location-Path", "Max-Age", "Location-Query" ]
-MAX_MODEL_CRASH_RESPONSE_OPTION = 1
-PROXY_OPTIONS = [ "Proxy-Uri", "Proxy-Scheme" ]
-MAX_MODEL_CRASH_PROXY_OPTION = 2
-
-# TODO: Document this
-RESERVED_LIST = ["Observe", "Uri-Port", "Content-Format", "Max-Age", "Accept", "Size2", "Size1"]
-
 def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_PORT,
     aut_host=COAP_AUT_DEFAULT_DST_HOST , aut_port=COAP_AUT_DEFAULT_DST_PORT, aut_src_port=COAP_AUT_DEFAULT_SRC_PORT):
     my_seed = ord(os.urandom(1))
@@ -99,9 +77,9 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
     reduc_tcs = []
     for o in active_option_list:
         models.append(len(mf.fuzz_models[target_name][o]))
-        tcs.append(len(mf.fuzz_models[target_name][o]) * HEADER_MODEL_TC_NUM)
+        tcs.append(len(mf.fuzz_models[target_name][o]) * K_MUT)
         optimum_models.append(len(mf.fuzz_models[target_name][o]))
-        optimum_tcs.append(len(mf.fuzz_models[target_name][o]) * HEADER_MODEL_TC_NUM)
+        optimum_tcs.append(len(mf.fuzz_models[target_name][o]) * K_MUT)
         reduc_models.append("{0:.2f}%".format(  (float(optimum_models[-1])/models[-1])*100  ))
         reduc_tcs.append("{0:.2f}%".format(  (float(optimum_tcs[-1])/tcs[-1])*100  ))
     table_str = Table(
@@ -122,7 +100,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
     start = time.time()
     for o in active_option_list:
        mf.targets[target_name].restart_target()
-       mf.run_option(target_name, o, run_all=RUN_ALL)
+       mf.run_option(target_name, o)
     time_msg = "Total Time: %.5fs" % (time.time() - start)
     print time_msg
     mf.targets[target_name].summaryfile.write(time_msg)
@@ -143,10 +121,10 @@ class Fuzzer():
         self.info = {}
         self.total_tc = 0
 
-    def get_total_tc(self, run_all=True):
+    def get_total_tc(self):
         tc_num = 0
         for target_name in self.fuzz_models.keys():
-            tc_num += self.info[target_name]['total_active_models'] * HEADER_MODEL_TC_NUM
+            tc_num += self.info[target_name]['total_active_models'] * K_MUT
 
         return tc_num
 
@@ -175,7 +153,7 @@ class Fuzzer():
 
         self.info[target_name]['total_active_models'] += 2 * len(self.fuzz_models[target_name]['bits'])
 
-        self.total_tc = self.get_total_tc(run_all=RUN_ALL)
+        self.total_tc = self.get_total_tc()
 
 ##################################################################################################
 # Fuzzer Object: Running Functions
@@ -183,7 +161,7 @@ class Fuzzer():
 
     def run_model(self, target_name, option_name, model_id, opt_tc, msg, target_path=None):
         start = time.time()
-        total_model_tc = HEADER_MODEL_TC_NUM
+        total_model_tc = K_MUT
 
         initial_model_crash_count = self.targets[target_name].crash_count
         if option_name in RESPONSE_OPTIONS:
@@ -223,11 +201,11 @@ class Fuzzer():
 
         return opt_tc
 
-    def run_option(self, target_name, option_name, run_all=True):
+    def run_option(self, target_name, option_name):
         start = time.time()
 
         opt_tc = 1
-        self.total_opt_tc = len(self.fuzz_models[target_name][option_name]) * HEADER_MODEL_TC_NUM
+        self.total_opt_tc = len(self.fuzz_models[target_name][option_name]) * K_MUT
 
         initial_opt_crash_count = self.targets[target_name].crash_count
         target_path = None

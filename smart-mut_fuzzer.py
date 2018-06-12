@@ -15,26 +15,6 @@ from coap_target import Target
 from fuzzer_models import *
 from utils import *
 
-##################################################################################################
-# Config
-##################################################################################################
-##### Debug parameters
-RUN_ALL = False
-
-##### Probing parameters
-# Timing (in seconds)
-INTERVAL_BETWEEN_REQUESTS = 0.00001
-REQUEST_TIMEOUT = 0.00005
-
-MAX_MODEL_CRASH = 50
-RESPONSE_OPTIONS = [ "Location-Path", "Max-Age", "Location-Query" ]
-MAX_MODEL_CRASH_RESPONSE_OPTION = 50
-PROXY_OPTIONS = [ "Proxy-Uri", "Proxy-Scheme" ]
-MAX_MODEL_CRASH_PROXY_OPTION = 50
-
-# TODO: Document this
-RESERVED_LIST = ["Observe", "Uri-Port", "Content-Format", "Max-Age", "Accept", "Size2", "Size1"]
-
 smart_mutated_value = None
 
 def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_PORT,
@@ -120,7 +100,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
     start = time.time()
     for o in mf.fuzz_models[target_name].keys():
        mf.targets[target_name].restart_target()
-       mf.run_option(target_name, o, run_all=RUN_ALL)
+       mf.run_option(target_name, o)
     time_msg = "Total Time: %.5fs" % (time.time() - start)
     print time_msg
     mf.targets[target_name].summaryfile.write(time_msg)
@@ -455,7 +435,7 @@ class Fuzzer():
         self.info = {}
         self.total_tc = 0
 
-    def get_total_tc(self, run_all=True):
+    def get_total_tc(self):
         tc_num = 0
         for target_name in self.fuzz_models.keys():
             for option_name in self.fuzz_models[target_name].keys():
@@ -557,7 +537,7 @@ class Fuzzer():
 
         self.info[target_name]['total_active_models'] += active_models
 
-        self.total_tc = self.get_total_tc(run_all=RUN_ALL)
+        self.total_tc = self.get_total_tc()
 
 ##################################################################################################
 # Fuzzer Object: Running Functions
@@ -607,7 +587,7 @@ class Fuzzer():
 
         return opt_tc
 
-    def run_option(self, target_name, option_name, run_all=True):
+    def run_option(self, target_name, option_name):
         start = time.time()
 
         opt_tc = 1

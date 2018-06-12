@@ -1,12 +1,12 @@
 from target_list import *
 from scapy.all import *
 
-# IPv6?
+# USER: Target runs on IPv6?
 TARGET_IPV6 = False
 
+# Default communication addresses (hosts and ports)
 PROCMON_DEFAULT_DST_HOST = "127.0.0.1"
 PROCMON_DEFAULT_DST_PORT = 35111
-
 if TARGET_IPV6:
     # USER: Choose between RIOT and Contiki (leave only one uncommented)
 
@@ -26,6 +26,28 @@ else:
     conf.L3socket = L3RawSocket
 COAP_AUT_DEFAULT_DST_PORT = 5683
 COAP_AUT_DEFAULT_SRC_PORT = 34552
+
+# USER: Probing parameters
+# Heuristic #2 - Thresholds
+MAX_MODEL_CRASH = 50 # Mut (5), Others (50)
+RESPONSE_OPTIONS = [ "Location-Path", "Max-Age", "Location-Query" ]
+MAX_MODEL_CRASH_RESPONSE_OPTION = 10 # Smart (50), Mut (1), Others (10)
+PROXY_OPTIONS = [ "Proxy-Uri", "Proxy-Scheme" ]
+MAX_MODEL_CRASH_PROXY_OPTION = 20 # Smart (50), Mut (2), Others (20)
+# Timing (in seconds)
+INTERVAL_BETWEEN_REQUESTS = 0.00001 # Time to sleep between each Test Case (TC) sent to the SUT
+REQUEST_TIMEOUT = 0.00005 # Timeout for each TC sent to the SUT
+# Fuzzing Engine-specific parameters
+# Number of TCs to run for each packet model type (packet template/generator)
+K_RANDOM = 20000
+K_INF_RANDOM = 10000
+K_MUT = 100
+K_ALL_GEN = 1000 # Number of TCs for the AllFields packet template/generator (Generational Fuzzer)
+K_GEN = 50 # Number of TCs for the <Format>Random packet templates/generators (Generational Fuzzer)
+# K_O_FORMAT, K_O_OPT_R and K_O_OPT_S are defined at runtime inside the Generational Fuzzer
+
+# USER: Debug parameters
+GEN_ALL = False # Generates all *rs*, *rr* and *ss* TCs (Generational Fuzzer)
 
 # Start: https://stackoverflow.com/a/3685352
 class ALIGN:
