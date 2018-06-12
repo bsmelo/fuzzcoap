@@ -22,6 +22,8 @@ if TARGET_IPV6:
     #conf.route6.ifdel("wlan0") # Contiki hack
 else:
     COAP_AUT_DEFAULT_DST_HOST = "127.0.0.1"
+    # Use loopback interface on Scapy
+    conf.L3socket = L3RawSocket
 COAP_AUT_DEFAULT_DST_PORT = 5683
 COAP_AUT_DEFAULT_SRC_PORT = 34552
 

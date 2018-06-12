@@ -37,7 +37,7 @@ class Target(object):
         aut_default_uris=None,
         aut_strings=None,
         procmon=None, procmon_options=None,
-        output_dir=None, run_id=None):
+        output_dir=None):
         self.log_level = 10 #TODO: fix this
 
         self.name = name
@@ -52,11 +52,9 @@ class Target(object):
         self.output_dir = output_dir
         self.summaryfile = open(output_dir+'/summary.log', 'w')
         self.pcapfile = open(output_dir+'/packets.log', 'w')
-        self.invfile = open(output_dir+'/invalid.log', 'w')
         self.mrfile = open(output_dir+'/mr.csv', 'w')
         self.ftcfile = open(output_dir+'/ftc.csv', 'w')
         self.mutfile = open(output_dir+'/mutations.csv', 'w')
-        self.run_id = run_id
 
         self.current_tc = 1
         self.crash_count = 0
@@ -132,8 +130,6 @@ class Target(object):
             self.summaryfile.close()
         if self.pcapfile and not self.pcapfile.closed:
             self.pcapfile.close()
-        if self.invfile and not self.invfile.closed:
-            self.invfile.close()
         if self.mrfile and not self.mrfile.closed:
             self.mrfile.close()
         if self.ftcfile and not self.ftcfile.closed:
@@ -204,8 +200,13 @@ class Target(object):
         try:
            response = client.discover(timeout=5)
         except:
-           self.log("Target doesn't implement discovery through GET .well-known/core")
-           pass
+            self.log("Retrying GET .well-known/core")
+            try:
+                response = client.discover(timeout=2)
+            except:
+                self.log("Target doesn't implement discovery through GET .well-known/core")
+                pass
+            pass
         # Uncomment below for Contiki or Canopus hack
         # class HackResp(object):
         #     code = defines.Codes.CONTENT.number
@@ -283,7 +284,7 @@ class Target(object):
             self.procmon.pre_send(self.current_tc)
 
         if self.current_tc % 10 == 0:
-            self.overall_msg = "%s | Overall TC: %d/%d | Option TC: %d/%d | Model TC: %d/%d | Current Unanswered Packets: %d/%d" % (msg, self.current_tc, total_tc, option_tc, total_option_tc, model_tc, total_model_tc, len(self.current_unans), MAX_UNANS)
+            self.overall_msg = "%s | Overall: %d/%d | Option: %d/%d | Model: %d/%d | Unanswered: %d/%d" % (msg, self.current_tc, total_tc, option_tc, total_option_tc, model_tc, total_model_tc, len(self.current_unans), MAX_UNANS)
             self.log(self.overall_msg)
 
     def post_send(self, result, option_name, model_id, target_path=None, last_tc_from_model=False, smart_mutated_value=None):
@@ -296,9 +297,6 @@ class Target(object):
             except struct.error:
                 rendered_pkt = result[0].load
                 invalid_pkt_format = True
-                self.invfile.write( "%s\t%s\t%d\t%s\t%d\t%s\n" %
-                    (option_name, model_id, self.current_tc, result[0].load, len(result[0].load), "answered")
-                )
                 pass
 
             self.current_unans = []
@@ -316,14 +314,10 @@ class Target(object):
             except struct.error:
                 rendered_pkt = result.load
                 invalid_pkt_format = True
-                self.invfile.write( "%s\t%s\t%d\t%s\t%d\t%s\n" %
-                    (option_name, model_id, self.current_tc, result.load, len(result.load), "unanswered")
-                )
                 pass
             self.current_unans.append((self.current_tc, rendered_pkt))
 
         # Fill out self.last_sent
-        # TODO: move out from the 'if not invalid_pkt_format'
         try:
             self.last_sent.append((self.current_tc, rendered_pkt))
         except KeyError:

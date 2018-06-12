@@ -19,19 +19,9 @@ from utils import *
 # Config
 ##################################################################################################
 ##### Debug parameters
-FORCE_SMALL_TC_NUM = False
 RUN_ALL = False
 
-##### Scapy parameters
-# Use loopback interface
-if not TARGET_IPV6:
-    conf.L3socket = L3RawSocket
-
 ##### Probing parameters
-# List of the smartness levels to run (TODO: always 1 anyway)
-SMART_LEVEL_LIST = [1]
-# Run Common and/or Large packets?
-PACKET_LEN_LIST = ['-L']
 # Timing (in seconds)
 INTERVAL_BETWEEN_REQUESTS = 0.00001
 REQUEST_TIMEOUT = 0.00005
@@ -77,8 +67,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
             'time_to_settle': target_info['time_to_settle'],
             'env': target_env,
         },
-        output_dir=output_dir,
-        run_id=output_dir.split('/')[2]
+        output_dir=output_dir
     )
 
     bind_layers(UDP, CoAP, sport=aut_port)
@@ -114,7 +103,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
         tc_num = 0
         stc_num = 0
         smodel_num = 0
-        for k,v in mf.fuzz_models[target_name][o][SMART_LEVEL_LIST[0]].iteritems():
+        for k,v in mf.fuzz_models[target_name][o].iteritems():
             tc_num += v[1]
             if ((o == 'header') or \
                 ((o in RESERVED_LIST) and ('rs' not in k)) or \
@@ -122,7 +111,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
                 ((o not in RESERVED_LIST) and (option_model[o][1] != "string") and ('Pss' not in k) and ('Sss' not in k))):
                 stc_num += v[1]
                 smodel_num += 1
-        models.append(len(mf.fuzz_models[target_name][o][SMART_LEVEL_LIST[0]]))
+        models.append(len(mf.fuzz_models[target_name][o]))
         tcs.append(tc_num)
         optimum_models.append(smodel_num)
         optimum_tcs.append(stc_num)
@@ -172,13 +161,12 @@ class Fuzzer():
         tc_num = 0
         for target_name in self.fuzz_models.keys():
             for option_name in self.fuzz_models[target_name].keys():
-                for sl in SMART_LEVEL_LIST:
-                    for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                        if run_all or ((option_name == 'header') or \
-                            ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                            ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                            ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))):
-                            tc_num += model[1]
+                for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+                    if run_all or ((option_name == 'header') or \
+                        ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
+                        ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
+                        ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))):
+                        tc_num += model[1]
 
         return tc_num
 
@@ -208,308 +196,295 @@ class Fuzzer():
         # 'EP': Empty Payload (sent to a Known Uri)
         # 'RP': Random Payload (sent to a Known Uri)
         self.fuzz_models[target_name] = OrderedDict()
-        self.fuzz_models[target_name]['header'] = [ OrderedDict(), OrderedDict(), OrderedDict(), OrderedDict() ]
+        self.fuzz_models[target_name]['header'] = OrderedDict()
 
-        # Smartness Level = 1
         # ---> Correct Version (1)
         # ---> Method Codes [GET, POST, PUT, DELETE] for Requests
         # ---> Message Types [CON, NON] for Requests and Sane Token (0..8 bytes)
-        self.fuzz_models[target_name]['header'][1]['R'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=[])), HEADER_MODEL_TC_NUM] # 7
-        self.fuzz_models[target_name]['header'][1]['EP'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark='')), HEADER_MODEL_TC_NUM] # D
-        self.fuzz_models[target_name]['header'][1]['RP'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), HEADER_MODEL_TC_NUM] # 8
-        self.fuzz_models[target_name]['header'][1]['R-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=[]))/
+        self.fuzz_models[target_name]['header']['R-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=[]))/
             Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), HEADER_MODEL_TC_NUM]
         # R-L generate weird packets fuzzing all fields (including options), not directed at any specific path
         # All Random - Untargetted
-        self.fuzz_models[target_name]['header'][1]['EP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark=''))/
+        self.fuzz_models[target_name]['header']['EP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark=''))/
             Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), HEADER_MODEL_TC_NUM]
         # EP-L fuzzes all fields but is directed to the known paths
         # Empty Payload - Targeted
-        self.fuzz_models[target_name]['header'][1]['RP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff'))/
+        self.fuzz_models[target_name]['header']['RP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff'))/
             Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), HEADER_MODEL_TC_NUM]
         # RP-L fuzzes all fields, directed to the known paths, but ensures a payload is present
         # Random Payload - Targeted
             # Special cases for Message ID and Token ID, the only rather large fields at the header, thus deserving this special treatment
-        self.fuzz_models[target_name]['header'][1]['MID'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), msg_id=SeqSingNum(0, 2**16-1, neg=False, overflow_max=False), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), HEADER_MODEL_TC_NUM if FORCE_SMALL_TC_NUM else len(SeqSingNum(0, 2**16-1, neg=False)._choice)]
-        self.fuzz_models[target_name]['header'][1]['TKN'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandEnumKeys([ SeqSingBin(i) for i in SeqSingNum(0, 8, neg=False)._choice ]), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), HEADER_MODEL_TC_NUM if FORCE_SMALL_TC_NUM else len(SeqSingBin(1)._choice) * len(SeqSingNum(0, 8, neg=False)._choice)]
+        self.fuzz_models[target_name]['header']['MID'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), msg_id=SeqSingNum(0, 2**16-1, neg=False, overflow_max=False), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), len(SeqSingNum(0, 2**16-1, neg=False)._choice)]
+        self.fuzz_models[target_name]['header']['TKN'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandEnumKeys([ SeqSingBin(i) for i in SeqSingNum(0, 8, neg=False)._choice ]), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), len(SeqSingBin(1)._choice) * len(SeqSingNum(0, 8, neg=False)._choice)]
 
-        self.info[target_name]['total_active_models'] += len(SMART_LEVEL_LIST) * len(self.fuzz_models[target_name]['header'][SMART_LEVEL_LIST[0]])
+        self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name]['header'])
 
         self.total_tc = self.get_total_tc(run_all=RUN_ALL)
 
-    def setup_model(self, target_name, option_name, sl, nmi, nmo, tc_num=None):
-        # TODO: Remove this or add a debug option
-        if FORCE_SMALL_TC_NUM:
-            tc_num = None
+    def setup_model(self, target_name, option_name, nmi, nmo, tc_num=None):
         # nmi: new_model_id; nmo: new_model_options
-        self.fuzz_models[target_name][option_name][-1][nmi] = [copy.deepcopy(self.fuzz_models[target_name]['header'][sl][nmi.split('_')[1]][0]), tc_num if tc_num else OPTION_MODEL_TC_NUM]
-        self.fuzz_models[target_name][option_name][-1][nmi][0].options = nmo
+        self.fuzz_models[target_name][option_name][nmi] = [copy.deepcopy(self.fuzz_models[target_name]['header'][nmi.split('_')[1]][0]), tc_num if tc_num else OPTION_MODEL_TC_NUM]
+        self.fuzz_models[target_name][option_name][nmi][0].options = nmo
 
     def setup_opaque_or_string_option(self, target_name, option_name, min_len, max_len, rand_class, rand_sing_class, seq_sing_class, special_classes, opt_ext_list):
-        for sl in xrange(0, 2):
-            self.fuzz_models[target_name][option_name].append(OrderedDict())
-            if sl in SMART_LEVEL_LIST:
-                for base_template_suffix in PACKET_LEN_LIST:
-                    # Option + Random Options (and possibly Random Payload)
-                    self.setup_model(target_name, option_name, sl, 'O_R'+base_template_suffix,
-                        [(option_name, rand_class(RandNum(min_len, max_len)))]
+        self.fuzz_models[target_name][option_name] = OrderedDict()
+        # Option + Random Options (and possibly Random Payload)
+        self.setup_model(target_name, option_name, 'O_R-L',
+            [(option_name, rand_class(RandNum(min_len, max_len)))]
+        )
+
+        # Option-Only + Empty Payload (sent to Empty Uri)
+        self.setup_model(target_name, option_name, 'O_EP-L_EU',
+            RandEnumKeys([[(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)])
+        )
+
+        # Option-Only + Random Payload (sent to a Empty Uri)
+        self.setup_model(target_name, option_name, 'O_RP-L_EU',
+            RandEnumKeys([[(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)])
+        )
+
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            # Option-Only + Empty Payload (sent to a Known Uri)
+            self.setup_model(target_name, option_name, 'O_EP-L_KU_'+str(tp_i),
+                RandEnumKeys([self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)
+                ])
+            )
+
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            # Option-Only + Random Payload (sent to a Known Uri)
+            self.setup_model(target_name, option_name, 'O_RP-L_KU_'+str(tp_i),
+                RandEnumKeys([self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)
+                ])
+            )
+
+        ext_list = opt_ext_list + self.targets[target_name].opt_ext_list[ option_model[option_name][1] ]
+        rand_sing_tc_num = 0
+        seq_sing_tc_num = 0
+        for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice:
+            rand_sing_tc_num += len(rand_sing_class(i, ext_list=ext_list)._choice)
+            seq_sing_tc_num += len(seq_sing_class(i, ext_list=ext_list)._choice
+            )
+
+        # Random special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_EP-L_KU_rs_'+str(tp_i),
+                RandEnumKeys([self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                ]),
+                tc_num=rand_sing_tc_num
+            )
+
+        # Random special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_RP-L_KU_rs_'+str(tp_i),
+                RandEnumKeys([self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                ]),
+                tc_num=rand_sing_tc_num
+            )
+
+        # All special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_EP-L_KU_ss_'+str(tp_i),
+                RandEnumKeys([self.target_paths[target_name][tp_i] +
+                    [(option_name, seq_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                ]),
+                tc_num=seq_sing_tc_num
+            )
+
+        # All special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_RP-L_KU_ss_'+str(tp_i),
+                RandEnumKeys([self.target_paths[target_name][tp_i] +
+                    [(option_name, seq_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                ]),
+                tc_num=seq_sing_tc_num
+            )
+
+        if len(special_classes) == 2:
+            query_attr_gen_classes = special_classes
+
+            rand_class = getattr(scapy.all, 'RandPrefixString')
+            rand_sing_class = getattr(scapy.all, 'RandSingPrefixString')
+            seq_sing_class = getattr(scapy.all, 'SeqSingPrefixString')
+
+            for gen_class_i in xrange(0, len(query_attr_gen_classes)):
+                if gen_class_i == 0:
+                    prefix_id = 'rs'
+                else:
+                    prefix_id = 'ss'
+
+                rand_tc_num = 0
+                rand_sing_tc_num = 0
+                seq_sing_tc_num = 0
+                for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice:
+                    rand_tc_num += OPTION_MODEL_TC_NUM
+                    rand_sing_tc_num += len(rand_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list)._choice)
+                    seq_sing_tc_num += len(seq_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list)._choice)
+
+                # Very Random very special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
+                for tp_i in xrange(0, len(self.target_paths[target_name])):
+                    self.setup_model(target_name, option_name, 'O_EP-L_KU_P'+prefix_id+'Srr_'+str(tp_i),
+                        RandEnumKeys([self.target_paths[target_name][tp_i] +
+                            [(option_name, rand_class(i, query_attr_gen_classes[gen_class_i]()))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                        ]),
+                        tc_num=rand_tc_num
                     )
 
-                    # Option-Only + Empty Payload (sent to Empty Uri)
-                    self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_EU',
-                        RandEnumKeys([[(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)])
+                # Very Random very special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
+                for tp_i in xrange(0, len(self.target_paths[target_name])):
+                    self.setup_model(target_name, option_name, 'O_RP-L_KU_P'+prefix_id+'Srr_'+str(tp_i),
+                        RandEnumKeys([self.target_paths[target_name][tp_i] +
+                            [(option_name, rand_class(i, query_attr_gen_classes[gen_class_i]()))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                        ]),
+                        tc_num=rand_tc_num
                     )
 
-                    # Option-Only + Random Payload (sent to a Empty Uri)
-                    self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_EU',
-                        RandEnumKeys([[(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)])
+                # Random very special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
+                for tp_i in xrange(0, len(self.target_paths[target_name])):
+                    self.setup_model(target_name, option_name, 'O_EP-L_KU_P'+prefix_id+'Srs_'+str(tp_i),
+                        RandEnumKeys([self.target_paths[target_name][tp_i] +
+                            [(option_name, rand_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                        ]),
+                        tc_num=rand_sing_tc_num
                     )
 
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        # Option-Only + Empty Payload (sent to a Known Uri)
-                        self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_'+str(tp_i),
-                            RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)
-                            ])
-                        )
+                # Random very special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
+                for tp_i in xrange(0, len(self.target_paths[target_name])):
+                    self.setup_model(target_name, option_name, 'O_RP-L_KU_P'+prefix_id+'Srs_'+str(tp_i),
+                        RandEnumKeys([self.target_paths[target_name][tp_i] +
+                            [(option_name, rand_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                        ]),
+                        tc_num=rand_sing_tc_num
+                    )
 
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        # Option-Only + Random Payload (sent to a Known Uri)
-                        self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_'+str(tp_i),
-                            RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_class(i))] for i in xrange(min_len, max_len+1)
-                            ])
-                        )
+                # All very special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
+                for tp_i in xrange(0, len(self.target_paths[target_name])):
+                    self.setup_model(target_name, option_name, 'O_EP-L_KU_P'+prefix_id+'Sss_'+str(tp_i),
+                        RandEnumKeys([self.target_paths[target_name][tp_i] +
+                            [(option_name, seq_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                        ]),
+                        tc_num=seq_sing_tc_num
+                    )
 
-                    ext_list = opt_ext_list + self.targets[target_name].opt_ext_list[ option_model[option_name][1] ]
-                    rand_sing_tc_num = 0
-                    seq_sing_tc_num = 0
-                    for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice:
-                        rand_sing_tc_num += len(rand_sing_class(i, ext_list=ext_list)._choice)
-                        seq_sing_tc_num += len(seq_sing_class(i, ext_list=ext_list)._choice
-                        )
+                # All very special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
+                for tp_i in xrange(0, len(self.target_paths[target_name])):
+                    self.setup_model(target_name, option_name, 'O_RP-L_KU_P'+prefix_id+'Sss_'+str(tp_i),
+                        RandEnumKeys([self.target_paths[target_name][tp_i] +
+                            [(option_name, seq_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
+                        ]),
+                        tc_num=seq_sing_tc_num
+                    )
 
-                    # Random special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_rs_'+str(tp_i),
-                            RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                            ]),
-                            tc_num=rand_sing_tc_num
-                        )
-
-                    # Random special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_rs_'+str(tp_i),
-                            RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                            ]),
-                            tc_num=rand_sing_tc_num
-                        )
-
-                    # All special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_ss_'+str(tp_i),
-                            RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                [(option_name, seq_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                            ]),
-                            tc_num=seq_sing_tc_num
-                        )
-
-                    # All special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_ss_'+str(tp_i),
-                            RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                [(option_name, seq_sing_class(i, ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                            ]),
-                            tc_num=seq_sing_tc_num
-                        )
-
-                    if len(special_classes) == 2:
-                        query_attr_gen_classes = special_classes
-
-                        rand_class = getattr(scapy.all, 'RandPrefixString')
-                        rand_sing_class = getattr(scapy.all, 'RandSingPrefixString')
-                        seq_sing_class = getattr(scapy.all, 'SeqSingPrefixString')
-
-                        for gen_class_i in xrange(0, len(query_attr_gen_classes)):
-                            if gen_class_i == 0:
-                                prefix_id = 'rs'
-                            else:
-                                prefix_id = 'ss'
-
-                            rand_tc_num = 0
-                            rand_sing_tc_num = 0
-                            seq_sing_tc_num = 0
-                            for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice:
-                                rand_tc_num += OPTION_MODEL_TC_NUM
-                                rand_sing_tc_num += len(rand_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list)._choice)
-                                seq_sing_tc_num += len(seq_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list)._choice)
-
-                            # Very Random very special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
-                            for tp_i in xrange(0, len(self.target_paths[target_name])):
-                                self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_P'+prefix_id+'Srr_'+str(tp_i),
-                                    RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                        [(option_name, rand_class(i, query_attr_gen_classes[gen_class_i]()))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                                    ]),
-                                    tc_num=rand_tc_num
-                                )
-
-                            # Very Random very special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
-                            for tp_i in xrange(0, len(self.target_paths[target_name])):
-                                self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_P'+prefix_id+'Srr_'+str(tp_i),
-                                    RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                        [(option_name, rand_class(i, query_attr_gen_classes[gen_class_i]()))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                                    ]),
-                                    tc_num=rand_tc_num
-                                )
-
-                            # Random very special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
-                            for tp_i in xrange(0, len(self.target_paths[target_name])):
-                                self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_P'+prefix_id+'Srs_'+str(tp_i),
-                                    RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                        [(option_name, rand_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                                    ]),
-                                    tc_num=rand_sing_tc_num
-                                )
-
-                            # Random very special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
-                            for tp_i in xrange(0, len(self.target_paths[target_name])):
-                                self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_P'+prefix_id+'Srs_'+str(tp_i),
-                                    RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                        [(option_name, rand_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                                    ]),
-                                    tc_num=rand_sing_tc_num
-                                )
-
-                            # All very special with all special sizes based upon Option-Only + Empty Payload (sent to a Known Uri)
-                            for tp_i in xrange(0, len(self.target_paths[target_name])):
-                                self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_P'+prefix_id+'Sss_'+str(tp_i),
-                                    RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                        [(option_name, seq_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                                    ]),
-                                    tc_num=seq_sing_tc_num
-                                )
-
-                            # All very special with all special sizes based upon Option-Only + Random Payload (sent to a Known Uri)
-                            for tp_i in xrange(0, len(self.target_paths[target_name])):
-                                self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_P'+prefix_id+'Sss_'+str(tp_i),
-                                    RandEnumKeys([self.target_paths[target_name][tp_i] +
-                                        [(option_name, seq_sing_class(i, query_attr_gen_classes[gen_class_i](), ext_list=ext_list))] for i in SeqSingNum(min_len, max_len, neg=False, ext_list=[4096])._choice
-                                    ]),
-                                    tc_num=seq_sing_tc_num
-                                )
-
-                self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name][option_name][sl])
+        self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name][option_name])
 
     def setup_uint_or_empty_option(self, target_name, option_name, min_len, max_len, rand_class, rand_sing_class, seq_sing_class, special_classes, opt_ext_list):
-        for sl in xrange(0, 2):
-            self.fuzz_models[target_name][option_name].append(OrderedDict())
-            if sl in SMART_LEVEL_LIST:
-                for base_template_suffix in PACKET_LEN_LIST:
-                    # Option + Random Options (and possibly Random Payload)
-                    self.setup_model(target_name, option_name, sl, 'O_R'+base_template_suffix,
-                        [(option_name, rand_class(min_len, max_len))]
-                    )
+        self.fuzz_models[target_name][option_name] = OrderedDict()
+        # Option + Random Options (and possibly Random Payload)
+        self.setup_model(target_name, option_name, 'O_R-L',
+            [(option_name, rand_class(min_len, max_len))]
+        )
 
-                    # Option-Only + Empty Payload (sent to Empty Uri)
-                    self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_EU',
-                        [(option_name, rand_class(min_len, max_len))]
-                    )
+        # Option-Only + Empty Payload (sent to Empty Uri)
+        self.setup_model(target_name, option_name, 'O_EP-L_EU',
+            [(option_name, rand_class(min_len, max_len))]
+        )
 
-                    # Option-Only + Random Payload (sent to a Empty Uri)
-                    self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_EU',
-                        [(option_name, rand_class(min_len, max_len))]
-                    )
+        # Option-Only + Random Payload (sent to a Empty Uri)
+        self.setup_model(target_name, option_name, 'O_RP-L_EU',
+            [(option_name, rand_class(min_len, max_len))]
+        )
 
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        # Option-Only + Empty Payload (sent to a Known Uri)
-                        self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_'+str(tp_i),
-                            self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_class(min_len, max_len))]
-                        )
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            # Option-Only + Empty Payload (sent to a Known Uri)
+            self.setup_model(target_name, option_name, 'O_EP-L_KU_'+str(tp_i),
+                self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_class(min_len, max_len))]
+            )
 
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        # Option-Only + Random Payload (sent to a Known Uri)
-                        self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_'+str(tp_i),
-                            self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_class(min_len, max_len))]
-                        )
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            # Option-Only + Random Payload (sent to a Known Uri)
+            self.setup_model(target_name, option_name, 'O_RP-L_KU_'+str(tp_i),
+                self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_class(min_len, max_len))]
+            )
 
-                    # Random special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_rs_'+str(tp_i),
-                            self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_sing_class(min_len, max_len))],
-                            tc_num=len(rand_sing_class(min_len, max_len)._choice)
-                        )
+        # Random special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_EP-L_KU_rs_'+str(tp_i),
+                self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_sing_class(min_len, max_len))],
+                tc_num=len(rand_sing_class(min_len, max_len)._choice)
+            )
 
-                    # Random special uint based upon Option-Only + Random Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_rs_'+str(tp_i),
-                            self.target_paths[target_name][tp_i] +
-                                [(option_name, rand_sing_class(min_len, max_len))],
-                            tc_num=len(rand_sing_class(min_len, max_len)._choice)
-                        )
+        # Random special uint based upon Option-Only + Random Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_RP-L_KU_rs_'+str(tp_i),
+                self.target_paths[target_name][tp_i] +
+                    [(option_name, rand_sing_class(min_len, max_len))],
+                tc_num=len(rand_sing_class(min_len, max_len)._choice)
+            )
 
-                    # All special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_ss_'+str(tp_i),
-                            self.target_paths[target_name][tp_i] +
-                                [(option_name, seq_sing_class(min_len, max_len, ext_list=opt_ext_list))],
-                            tc_num=len(rand_sing_class(min_len, max_len)._choice) + (len(rand_sing_class(min_len, max_len)._choice)/3) + len(opt_ext_list) + 1 # Account for negative MAX_LEN generation
-                        )
+        # All special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_EP-L_KU_ss_'+str(tp_i),
+                self.target_paths[target_name][tp_i] +
+                    [(option_name, seq_sing_class(min_len, max_len, ext_list=opt_ext_list))],
+                tc_num=len(rand_sing_class(min_len, max_len)._choice) + (len(rand_sing_class(min_len, max_len)._choice)/3) + len(opt_ext_list) + 1 # Account for negative MAX_LEN generation
+            )
 
-                    # All special uint based upon Option-Only + Random Payload (sent to a Known Uri)
-                    for tp_i in xrange(0, len(self.target_paths[target_name])):
-                        self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_ss_'+str(tp_i),
-                            self.target_paths[target_name][tp_i] +
-                                [(option_name, seq_sing_class(min_len, max_len, ext_list=opt_ext_list))],
-                            tc_num=len(rand_sing_class(min_len, max_len)._choice) + (len(rand_sing_class(min_len, max_len)._choice)/3) + len(opt_ext_list) + 1 # Account for negative MAX_LEN generation
-                        )
+        # All special uint based upon Option-Only + Random Payload (sent to a Known Uri)
+        for tp_i in xrange(0, len(self.target_paths[target_name])):
+            self.setup_model(target_name, option_name, 'O_RP-L_KU_ss_'+str(tp_i),
+                self.target_paths[target_name][tp_i] +
+                    [(option_name, seq_sing_class(min_len, max_len, ext_list=opt_ext_list))],
+                tc_num=len(rand_sing_class(min_len, max_len)._choice) + (len(rand_sing_class(min_len, max_len)._choice)/3) + len(opt_ext_list) + 1 # Account for negative MAX_LEN generation
+            )
 
-                    if len(special_classes) == 2:
-                        special_rand_sing_class = special_classes[0]
-                        special_seq_sing_class = special_classes[1]
+        if len(special_classes) == 2:
+            special_rand_sing_class = special_classes[0]
+            special_seq_sing_class = special_classes[1]
 
-                        if option_name in ["Uri-Port", "Content-Format", "Accept"]:
-                            TC_BOMB = 20
-                        else:
-                            TC_BOMB = 1
+            if option_name in ["Uri-Port", "Content-Format", "Accept"]:
+                TC_BOMB = 20
+            else:
+                TC_BOMB = 1
 
-                        # Random very special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
-                        for tp_i in xrange(0, len(self.target_paths[target_name])):
-                            self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_Frs_'+str(tp_i),
-                                self.target_paths[target_name][tp_i] +
-                                    [(option_name, special_rand_sing_class())],
-                                tc_num=len(special_rand_sing_class()._choice)
-                            )
+            # Random very special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
+            for tp_i in xrange(0, len(self.target_paths[target_name])):
+                self.setup_model(target_name, option_name, 'O_EP-L_KU_Frs_'+str(tp_i),
+                    self.target_paths[target_name][tp_i] +
+                        [(option_name, special_rand_sing_class())],
+                    tc_num=len(special_rand_sing_class()._choice)
+                )
 
-                        # Random very special uint based upon Option-Only + Random Payload (sent to a Known Uri)
-                        for tp_i in xrange(0, len(self.target_paths[target_name])):
-                            self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_Frs_'+str(tp_i),
-                                self.target_paths[target_name][tp_i] +
-                                    [(option_name, special_rand_sing_class())],
-                                tc_num=len(special_rand_sing_class()._choice)
-                            )
+            # Random very special uint based upon Option-Only + Random Payload (sent to a Known Uri)
+            for tp_i in xrange(0, len(self.target_paths[target_name])):
+                self.setup_model(target_name, option_name, 'O_RP-L_KU_Frs_'+str(tp_i),
+                    self.target_paths[target_name][tp_i] +
+                        [(option_name, special_rand_sing_class())],
+                    tc_num=len(special_rand_sing_class()._choice)
+                )
 
-                        # All very special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
-                        for tp_i in xrange(0, len(self.target_paths[target_name])):
-                            self.setup_model(target_name, option_name, sl, 'O_EP'+base_template_suffix+'_KU_Fss_'+str(tp_i),
-                                self.target_paths[target_name][tp_i] +
-                                    [(option_name, special_seq_sing_class(ext_list=opt_ext_list))],
-                                tc_num=len(special_seq_sing_class(ext_list=opt_ext_list)._choice) * TC_BOMB
-                            )
+            # All very special uint based upon Option-Only + Empty Payload (sent to a Known Uri)
+            for tp_i in xrange(0, len(self.target_paths[target_name])):
+                self.setup_model(target_name, option_name, 'O_EP-L_KU_Fss_'+str(tp_i),
+                    self.target_paths[target_name][tp_i] +
+                        [(option_name, special_seq_sing_class(ext_list=opt_ext_list))],
+                    tc_num=len(special_seq_sing_class(ext_list=opt_ext_list)._choice) * TC_BOMB
+                )
 
-                        # All very special uint based upon Option-Only + Random Payload (sent to a Known Uri)
-                        for tp_i in xrange(0, len(self.target_paths[target_name])):
-                            self.setup_model(target_name, option_name, sl, 'O_RP'+base_template_suffix+'_KU_Fss_'+str(tp_i),
-                                self.target_paths[target_name][tp_i] +
-                                    [(option_name, special_seq_sing_class(ext_list=opt_ext_list))],
-                                tc_num=len(special_seq_sing_class(ext_list=opt_ext_list)._choice) * TC_BOMB
-                            )
+            # All very special uint based upon Option-Only + Random Payload (sent to a Known Uri)
+            for tp_i in xrange(0, len(self.target_paths[target_name])):
+                self.setup_model(target_name, option_name, 'O_RP-L_KU_Fss_'+str(tp_i),
+                    self.target_paths[target_name][tp_i] +
+                        [(option_name, special_seq_sing_class(ext_list=opt_ext_list))],
+                    tc_num=len(special_seq_sing_class(ext_list=opt_ext_list)._choice) * TC_BOMB
+                )
 
-                self.info[target_name]['total_active_models'] += len(SMART_LEVEL_LIST) * len(self.fuzz_models[target_name][option_name][sl])
+        self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name][option_name])
 
     def setup_option(self, target_name, option_name):
         self.fuzz_models[target_name][option_name] = []
@@ -534,9 +509,9 @@ class Fuzzer():
 # Fuzzer Object: Running Functions
 ##################################################################################################
 
-    def run_model(self, target_name, option_name, sl, model_id, opt_tc, msg, target_path=None):
+    def run_model(self, target_name, option_name, model_id, opt_tc, msg, target_path=None):
         start = time.time()
-        total_model_tc = self.fuzz_models[target_name][option_name][sl][model_id][1]
+        total_model_tc = self.fuzz_models[target_name][option_name][model_id][1]
 
         initial_model_crash_count = self.targets[target_name].crash_count
         if option_name in RESPONSE_OPTIONS:
@@ -549,9 +524,9 @@ class Fuzzer():
         for count in xrange(total_model_tc):
             self.targets[target_name].pre_send(count+1, total_model_tc, opt_tc, self.total_opt_tc, self.total_tc, msg)
             if not TARGET_IPV6:
-                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][sl][model_id][0]), verbose=0, timeout=REQUEST_TIMEOUT)
+                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id][0])[:65507], verbose=0, timeout=REQUEST_TIMEOUT)
             else:
-                ans, unans = sr(IPv6(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][sl][model_id][0])[:1452], verbose=0, timeout=REQUEST_TIMEOUT)
+                ans, unans = sr(IPv6(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id][0])[:1452], verbose=0, timeout=REQUEST_TIMEOUT)
             time.sleep(INTERVAL_BETWEEN_REQUESTS)
             self.targets[target_name].post_send(ans[0] if ans else unans[0], option_name, model_id, target_path, (count+1) == total_model_tc)
             opt_tc += 1
@@ -581,30 +556,28 @@ class Fuzzer():
 
         opt_tc = 1
         self.total_opt_tc = 0
-        for sl in SMART_LEVEL_LIST:
-            for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                if run_all or ( ((option_name == 'header') or \
-                    ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                    ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                    ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
-                    self.total_opt_tc += model[1]
+        for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+            if run_all or ( ((option_name == 'header') or \
+                ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
+                ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
+                ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
+                self.total_opt_tc += model[1]
 
         initial_opt_crash_count = self.targets[target_name].crash_count
-        for sl in SMART_LEVEL_LIST:
-            for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                target_path = None
-                if run_all or ( ((option_name == 'header') or \
-                    ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                    ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                    ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
-                    msg = "Fuzzing %s | Model ID: %s | Smart Level: %d" %\
-                        ('Header' if option_name == 'header' else 'Option: %s' % option_name,
-                        model_id, sl)
-                    if option_name != 'header' and ("KU" in model_id):
-                        target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
-                        msg += " | Target Resource: %s" % target_path
+        for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+            target_path = None
+            if run_all or ( ((option_name == 'header') or \
+                ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
+                ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
+                ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
+                msg = "Fuzzing %s | Model ID: %s" %\
+                    ('Header' if option_name == 'header' else 'Option: %s' % option_name,
+                    model_id)
+                if option_name != 'header' and ("KU" in model_id):
+                    target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
+                    msg += " | Target Resource: %s" % target_path
 
-                    opt_tc = self.run_model(target_name, option_name, sl, model_id, opt_tc, msg, target_path)
+                opt_tc = self.run_model(target_name, option_name, model_id, opt_tc, msg, target_path)
 
 
         crash_msg = "Crashes for %s: %d" %\
@@ -634,7 +607,7 @@ USAGE = "USAGE: process_monitor_unix.py"\
         "\n    [-P|--aut_port aut_port]         Application Under Test's UDP port (CoAP dst)"\
         "\n    [-t|--aut_src_port aut_src_port] Target's UDP port (CoAP src)"\
         "\n    -d|--output_dir dir              directory where output files are put "\
-        "\n                                     (as in 'output/<target_name>/<run_id>')"
+        "\n                                     (as in 'output/<target_name>')"
 
 ERR   = lambda msg: sys.stderr.write("ERR> " + msg + "\n") or sys.exit(1)
 

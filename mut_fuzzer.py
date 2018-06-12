@@ -19,17 +19,9 @@ from utils import *
 # Config
 ##################################################################################################
 ##### Debug parameters
-FORCE_SMALL_TC_NUM = False
 RUN_ALL = False
 
-##### Scapy parameters
-# Use loopback interface
-if not TARGET_IPV6:
-    conf.L3socket = L3RawSocket
-
 ##### Probing parameters
-# List of the smartness levels to run (TODO: always 0 anyway)
-SMART_LEVEL_LIST = [0]
 # Timing (in seconds)
 INTERVAL_BETWEEN_REQUESTS = 0.00001
 REQUEST_TIMEOUT = 0.00005
@@ -74,8 +66,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
             'time_to_settle': target_info['time_to_settle'],
             'env': target_env,
         },
-        output_dir=output_dir,
-        run_id=output_dir.split('/')[2]
+        output_dir=output_dir
     )
 
     bind_layers(UDP, CoAP, sport=aut_port)
@@ -190,7 +181,7 @@ class Fuzzer():
 # Fuzzer Object: Running Functions
 ##################################################################################################
 
-    def run_model(self, target_name, option_name, sl, model_id, opt_tc, msg, target_path=None):
+    def run_model(self, target_name, option_name, model_id, opt_tc, msg, target_path=None):
         start = time.time()
         total_model_tc = HEADER_MODEL_TC_NUM
 
@@ -205,7 +196,7 @@ class Fuzzer():
         for count in xrange(total_model_tc):
             self.targets[target_name].pre_send(count+1, total_model_tc, opt_tc, self.total_opt_tc, self.total_tc, msg)
             if not TARGET_IPV6:
-                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id]), verbose=0, timeout=REQUEST_TIMEOUT)
+                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id])[:65507], verbose=0, timeout=REQUEST_TIMEOUT)
             else:
                 ans, unans = sr(IPv6(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id])[:1452], verbose=0, timeout=REQUEST_TIMEOUT)
             time.sleep(INTERVAL_BETWEEN_REQUESTS)
@@ -239,13 +230,12 @@ class Fuzzer():
         self.total_opt_tc = len(self.fuzz_models[target_name][option_name]) * HEADER_MODEL_TC_NUM
 
         initial_opt_crash_count = self.targets[target_name].crash_count
-        sl = 0
         target_path = None
         for model_id in xrange(len(self.fuzz_models[target_name][option_name])):
-            msg = "Fuzzing %s | Model ID: %d | Smart Level: %d" %\
-                ('Header' if option_name == 'header' else 'Option: %s' % option_name, model_id, sl)
+            msg = "Fuzzing %s | Model ID: %d" %\
+                ('Header' if option_name == 'header' else 'Option: %s' % option_name, model_id)
 
-            opt_tc = self.run_model(target_name, option_name, sl, model_id, opt_tc, msg, target_path)
+            opt_tc = self.run_model(target_name, option_name, model_id, opt_tc, msg, target_path)
 
 
         crash_msg = "Crashes for %s: %d" %\
@@ -272,7 +262,7 @@ USAGE = "USAGE: process_monitor_unix.py"\
         "\n    [-P|--aut_port aut_port]         Application Under Test's UDP port (CoAP dst)"\
         "\n    [-t|--aut_src_port aut_src_port] Target's UDP port (CoAP src)"\
         "\n    -d|--output_dir dir              directory where output files are put "\
-        "\n                                     (as in 'output/<target_name>/<run_id>')"
+        "\n                                     (as in 'output/<target_name>')"
 
 ERR   = lambda msg: sys.stderr.write("ERR> " + msg + "\n") or sys.exit(1)
 

@@ -19,17 +19,9 @@ from utils import *
 # Config
 ##################################################################################################
 ##### Debug parameters
-FORCE_SMALL_TC_NUM = False
 RUN_ALL = False
 
-##### Scapy parameters
-# Use loopback interface
-if not TARGET_IPV6:
-    conf.L3socket = L3RawSocket
-
 ##### Probing parameters
-# List of the smartness levels to run (TODO: always 0 anyway)
-SMART_LEVEL_LIST = [0]
 # Timing (in seconds)
 INTERVAL_BETWEEN_REQUESTS = 0.00001
 REQUEST_TIMEOUT = 0.00005
@@ -74,8 +66,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
             'time_to_settle': target_info['time_to_settle'],
             'env': target_env,
         },
-        output_dir=output_dir,
-        run_id=output_dir.split('/')[2]
+        output_dir=output_dir
     )
 
     bind_layers(UDP, CoAP, sport=aut_port)
@@ -103,11 +94,11 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
     reduc_tcs = []
     for o in mf.fuzz_models[target_name].keys():
         tc_num = 0
-        for k,v in mf.fuzz_models[target_name][o][SMART_LEVEL_LIST[0]].iteritems():
+        for k,v in mf.fuzz_models[target_name][o].iteritems():
             tc_num += v[1]
-        models.append(len(mf.fuzz_models[target_name][o][SMART_LEVEL_LIST[0]]))
+        models.append(len(mf.fuzz_models[target_name][o]))
         tcs.append(tc_num)
-        optimum_models.append(len(mf.fuzz_models[target_name][o][SMART_LEVEL_LIST[0]]))
+        optimum_models.append(len(mf.fuzz_models[target_name][o]))
         optimum_tcs.append(tc_num)
         reduc_models.append("{0:.2f}%".format(  (float(optimum_models[-1])/models[-1])*100  ))
         reduc_tcs.append("{0:.2f}%".format(  (float(optimum_tcs[-1])/tcs[-1])*100  ))
@@ -468,9 +459,8 @@ class Fuzzer():
         tc_num = 0
         for target_name in self.fuzz_models.keys():
             for option_name in self.fuzz_models[target_name].keys():
-                for sl in SMART_LEVEL_LIST:
-                    for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                        tc_num += model[1]
+                for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+                    tc_num += model[1]
 
         return tc_num
 
@@ -497,12 +487,12 @@ class Fuzzer():
             kp_i = kp_i + 1
 
         self.fuzz_models[target_name] = OrderedDict()
-        self.fuzz_models[target_name]['string'] = [ OrderedDict() ]
-        self.fuzz_models[target_name]['opaque'] = [ OrderedDict() ]
-        self.fuzz_models[target_name]['uint'] = [ OrderedDict() ]
-        self.fuzz_models[target_name]['empty'] = [ OrderedDict() ]
-        self.fuzz_models[target_name]['payload'] = [ OrderedDict() ]
-        self.fuzz_models[target_name]['field'] = [ OrderedDict() ]
+        self.fuzz_models[target_name]['string'] = OrderedDict()
+        self.fuzz_models[target_name]['opaque'] = OrderedDict()
+        self.fuzz_models[target_name]['uint'] = OrderedDict()
+        self.fuzz_models[target_name]['empty'] = OrderedDict()
+        self.fuzz_models[target_name]['payload'] = OrderedDict()
+        self.fuzz_models[target_name]['field'] = OrderedDict()
 
         pcap_pkts = rdpcap("conversation.pcapng")
 
@@ -519,53 +509,53 @@ class Fuzzer():
         for prefix in ['', 'RandKTarget_']:
             if len(origin_pkts['string']) > 0:
                 for mut_mode in [prefix + mode for mode in ['StrEmpty', 'StrAddNonPrintable', 'StrOverflow']]:
-                    self.fuzz_models[target_name]['string'][0][mut_mode] = [SmartStrings(origin_pkts['string'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['string'])]
+                    self.fuzz_models[target_name]['string'][mut_mode] = [SmartStrings(origin_pkts['string'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['string'])]
                 for mut_mode in [prefix + mode for mode in ['StrPredefined_\x00', 'StrPredefined_8', 'StrPredefined_#', 'StrPredefined_😍', 'StrPredefined_%']]:
-                    self.fuzz_models[target_name]['string'][0][mut_mode] = [SmartStrings(origin_pkts['string'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['string'])]
+                    self.fuzz_models[target_name]['string'][mut_mode] = [SmartStrings(origin_pkts['string'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['string'])]
             else:
                 self.fuzz_models[target_name].pop('string', None)
 
             if len(origin_pkts['opaque']) > 0:
                 for mut_mode in [prefix + mode for mode in ['OpaqueEmpty', 'OpaqueOverflow']]:
-                    self.fuzz_models[target_name]['opaque'][0][mut_mode] = [SmartOpaques(origin_pkts['opaque'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['opaque'])]
+                    self.fuzz_models[target_name]['opaque'][mut_mode] = [SmartOpaques(origin_pkts['opaque'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['opaque'])]
                 for mut_mode in [prefix + mode for mode in ['OpaquePredefined_\x00', 'OpaquePredefined_\xff', 'OpaquePredefined_😍', 'OpaquePredefined_%']]:
-                    self.fuzz_models[target_name]['opaque'][0][mut_mode] = [SmartOpaques(origin_pkts['opaque'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['opaque'])]
+                    self.fuzz_models[target_name]['opaque'][mut_mode] = [SmartOpaques(origin_pkts['opaque'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['opaque'])]
             else:
                 self.fuzz_models[target_name].pop('opaque', None)
 
             if len(origin_pkts['uint']) > 0:
                 for mut_mode in [prefix + mode for mode in ['UintNull', 'UintAbsoluteMinusOne', 'UintAbsoluteOne', 'UintAbsoluteZero', 'UintAddOne', 'UintSubtractOne', 'UintMaxRange', 'UintMinRange', 'UintMaxRangePlusOne']]:
-                    self.fuzz_models[target_name]['uint'][0][mut_mode] = [SmartUints(origin_pkts['uint'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['uint'])]
+                    self.fuzz_models[target_name]['uint'][mut_mode] = [SmartUints(origin_pkts['uint'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['uint'])]
             else:
                 self.fuzz_models[target_name].pop('uint', None)
 
             if len(origin_pkts['empty']) > 0:
                 for mut_mode in [prefix + mode for mode in ['EmptyAbsoluteMinusOne', 'EmptyAbsoluteOne', 'EmptyAbsoluteZero']]:
-                    self.fuzz_models[target_name]['empty'][0][mut_mode] = [SmartEmpties(origin_pkts['empty'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['empty'])]
+                    self.fuzz_models[target_name]['empty'][mut_mode] = [SmartEmpties(origin_pkts['empty'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['empty'])]
                 for mut_mode in [prefix + mode for mode in ['EmptyPredefined_\xff', 'EmptyPredefined_#', 'EmptyPredefined_😍', 'EmptyPredefined_%']]:
-                    self.fuzz_models[target_name]['empty'][0][mut_mode] = [SmartEmpties(origin_pkts['empty'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['empty'])]
+                    self.fuzz_models[target_name]['empty'][mut_mode] = [SmartEmpties(origin_pkts['empty'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['empty'])]
             else:
                 self.fuzz_models[target_name].pop('empty', None)
 
             if len(origin_pkts['payload']) > 0:
                 for mut_mode in [prefix + mode for mode in ['PayloadEmpty', 'PayloadAddNonPrintable']]:
-                    self.fuzz_models[target_name]['payload'][0][mut_mode] = [SmartPayloads(origin_pkts['payload'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['payload'])]
+                    self.fuzz_models[target_name]['payload'][mut_mode] = [SmartPayloads(origin_pkts['payload'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['payload'])]
                 for mut_mode in [prefix + mode for mode in ['PayloadPredefined_\x00', 'PayloadPredefined_\xff', 'PayloadPredefined_#', 'PayloadPredefined_😍', 'PayloadPredefined_%']]:
-                    self.fuzz_models[target_name]['payload'][0][mut_mode] = [SmartPayloads(origin_pkts['payload'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['payload'])]
+                    self.fuzz_models[target_name]['payload'][mut_mode] = [SmartPayloads(origin_pkts['payload'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['payload'])]
             else:
                 self.fuzz_models[target_name].pop('payload', None)
 
             if len(origin_pkts['field']) > 0:
                 for mut_mode in [prefix + mode for mode in ['FieldNull', 'FieldRemove', 'FieldDuplicate']]:
-                    self.fuzz_models[target_name]['field'][0][mut_mode] = [SmartFields(origin_pkts['field'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['field'])]
+                    self.fuzz_models[target_name]['field'][mut_mode] = [SmartFields(origin_pkts['field'], mut_mode, self.target_paths[target_name] if prefix else None), len(origin_pkts['field'])]
             else:
                 self.fuzz_models[target_name].pop('field', None)
 
         active_models = 0
         for opt_type in self.fuzz_models[target_name]:
-            active_models += len(opt_type[SMART_LEVEL_LIST[0]])
+            active_models += len(opt_type)
 
-        self.info[target_name]['total_active_models'] += len(SMART_LEVEL_LIST) * active_models
+        self.info[target_name]['total_active_models'] += active_models
 
         self.total_tc = self.get_total_tc(run_all=RUN_ALL)
 
@@ -573,10 +563,10 @@ class Fuzzer():
 # Fuzzer Object: Running Functions
 ##################################################################################################
 
-    def run_model(self, target_name, option_name, sl, model_id, opt_tc, msg, target_path=None):
+    def run_model(self, target_name, option_name, model_id, opt_tc, msg, target_path=None):
         global smart_mutated_value
         start = time.time()
-        total_model_tc = self.fuzz_models[target_name][option_name][sl][model_id][1]
+        total_model_tc = self.fuzz_models[target_name][option_name][model_id][1]
 
         initial_model_crash_count = self.targets[target_name].crash_count
         if option_name in RESPONSE_OPTIONS:
@@ -589,9 +579,9 @@ class Fuzzer():
         for count in xrange(total_model_tc):
             self.targets[target_name].pre_send(count+1, total_model_tc, opt_tc, self.total_opt_tc, self.total_tc, msg)
             if not TARGET_IPV6:
-                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][sl][model_id][0]), verbose=0, timeout=REQUEST_TIMEOUT)
+                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id][0])[:65507], verbose=0, timeout=REQUEST_TIMEOUT)
             else:
-                ans, unans = sr(IPv6(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][sl][model_id][0])[:1452], verbose=0, timeout=REQUEST_TIMEOUT)
+                ans, unans = sr(IPv6(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id][0])[:1452], verbose=0, timeout=REQUEST_TIMEOUT)
             time.sleep(INTERVAL_BETWEEN_REQUESTS)
             self.targets[target_name].post_send(ans[0] if ans else unans[0], option_name, model_id, target_path, (count+1) == total_model_tc, smart_mutated_value)
             smart_mutated_value = None
@@ -622,22 +612,20 @@ class Fuzzer():
 
         opt_tc = 1
         self.total_opt_tc = 0
-        for sl in SMART_LEVEL_LIST:
-            for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                self.total_opt_tc += model[1]
+        for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+            self.total_opt_tc += model[1]
 
         initial_opt_crash_count = self.targets[target_name].crash_count
-        for sl in SMART_LEVEL_LIST:
-            for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                target_path = None
-                msg = "Fuzzing %s | Model ID: %s | Smart Level: %d" %\
-                    ('Header' if option_name == 'header' else 'Option: %s' % option_name,
-                    model_id, sl)
-                if option_name != 'header' and ("KU" in model_id): # TODO known uris
-                    target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
-                    msg += " | Target Resource: %s" % target_path
+        for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+            target_path = None
+            msg = "Fuzzing %s | Model ID: %s" %\
+                ('Header' if option_name == 'header' else 'Option: %s' % option_name,
+                model_id)
+            if option_name != 'header' and ("KU" in model_id): # TODO known uris
+                target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
+                msg += " | Target Resource: %s" % target_path
 
-                opt_tc = self.run_model(target_name, option_name, sl, model_id, opt_tc, msg, target_path)
+            opt_tc = self.run_model(target_name, option_name, model_id, opt_tc, msg, target_path)
 
 
         crash_msg = "Crashes for %s: %d" %\
@@ -664,7 +652,7 @@ USAGE = "USAGE: process_monitor_unix.py"\
         "\n    [-P|--aut_port aut_port]         Application Under Test's UDP port (CoAP dst)"\
         "\n    [-t|--aut_src_port aut_src_port] Target's UDP port (CoAP src)"\
         "\n    -d|--output_dir dir              directory where output files are put "\
-        "\n                                     (as in 'output/<target_name>/<run_id>')"
+        "\n                                     (as in 'output/<target_name>')"
 
 ERR   = lambda msg: sys.stderr.write("ERR> " + msg + "\n") or sys.exit(1)
 

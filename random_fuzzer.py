@@ -19,17 +19,9 @@ from utils import *
 # Config
 ##################################################################################################
 ##### Debug parameters
-FORCE_SMALL_TC_NUM = False
 RUN_ALL = False
 
-##### Scapy parameters
-# Use loopback interface
-if not TARGET_IPV6:
-    conf.L3socket = L3RawSocket
-
 ##### Probing parameters
-# List of the smartness levels to run
-SMART_LEVEL_LIST = [0]
 # Timing (in seconds)
 INTERVAL_BETWEEN_REQUESTS = 0.00001
 REQUEST_TIMEOUT = 0.00005
@@ -75,8 +67,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
             'time_to_settle': target_info['time_to_settle'],
             'env': target_env,
         },
-        output_dir=output_dir,
-        run_id=output_dir.split('/')[2]
+        output_dir=output_dir
     )
 
     bind_layers(UDP, CoAP, sport=aut_port)
@@ -109,7 +100,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
         tc_num = 0
         stc_num = 0
         smodel_num = 0
-        for k,v in mf.fuzz_models[target_name][o][SMART_LEVEL_LIST[0]].iteritems():
+        for k,v in mf.fuzz_models[target_name][o].iteritems():
             tc_num += v[1]
             if ((o == 'header') or \
                 ((o in RESERVED_LIST) and ('rs' not in k)) or \
@@ -117,7 +108,7 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
                 ((o not in RESERVED_LIST) and (option_model[o][1] != "string") and ('Pss' not in k) and ('Sss' not in k))):
                 stc_num += v[1]
                 smodel_num += 1
-        models.append(len(mf.fuzz_models[target_name][o][SMART_LEVEL_LIST[0]]))
+        models.append(len(mf.fuzz_models[target_name][o]))
         tcs.append(tc_num)
         optimum_models.append(smodel_num)
         optimum_tcs.append(stc_num)
@@ -164,13 +155,12 @@ class Fuzzer():
         tc_num = 0
         for target_name in self.fuzz_models.keys():
             for option_name in self.fuzz_models[target_name].keys():
-                for sl in SMART_LEVEL_LIST:
-                    for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                        if run_all or ((option_name == 'header') or \
-                            ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                            ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                            ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))):
-                            tc_num += model[1]
+                for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+                    if run_all or ((option_name == 'header') or \
+                        ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
+                        ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
+                        ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))):
+                        tc_num += model[1]
 
         return tc_num
 
@@ -188,15 +178,15 @@ class Fuzzer():
 
         # 'R': Random Options (and possibly Random Payload)
         self.fuzz_models[target_name] = OrderedDict()
-        self.fuzz_models[target_name]['header'] = [ OrderedDict(), OrderedDict(), OrderedDict(), OrderedDict() ]
+        self.fuzz_models[target_name]['header'] = OrderedDict()
 
-        # Smartness Level = 0 ---> Full Random
-        self.fuzz_models[target_name]['header'][0]['R'] = [fuzz(CoAP(options=[])), HEADER_MODEL_TC_NUM] # 1
-        self.fuzz_models[target_name]['header'][0]['R-L'] = [Raw(load=RandEnumKeys(
+        # Full Random
+        self.fuzz_models[target_name]['header']['R'] = [fuzz(CoAP(options=[])), HEADER_MODEL_TC_NUM] # 1
+        self.fuzz_models[target_name]['header']['R-L'] = [Raw(load=RandEnumKeys(
             [ RandBin(i) for i in SeqSingNum(0, 2**16-1 - (20+8), neg=False, overflow_max=False)._choice ]
         )), HEADER_MODEL_TC_NUM] # IP header (20) + UDP datagram (8)
 
-        self.info[target_name]['total_active_models'] += len(SMART_LEVEL_LIST) * len(self.fuzz_models[target_name]['header'][SMART_LEVEL_LIST[0]])
+        self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name]['header'])
 
         self.total_tc = self.get_total_tc(run_all=RUN_ALL)
 
@@ -204,9 +194,9 @@ class Fuzzer():
 # Fuzzer Object: Running Functions
 ##################################################################################################
 
-    def run_model(self, target_name, option_name, sl, model_id, opt_tc, msg, target_path=None):
+    def run_model(self, target_name, option_name, model_id, opt_tc, msg, target_path=None):
         start = time.time()
-        total_model_tc = self.fuzz_models[target_name][option_name][sl][model_id][1]
+        total_model_tc = self.fuzz_models[target_name][option_name][model_id][1]
 
         initial_model_crash_count = self.targets[target_name].crash_count
         if option_name in RESPONSE_OPTIONS:
@@ -219,9 +209,9 @@ class Fuzzer():
         for count in xrange(total_model_tc):
             self.targets[target_name].pre_send(count+1, total_model_tc, opt_tc, self.total_opt_tc, self.total_tc, msg)
             if not TARGET_IPV6:
-                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][sl][model_id][0]), verbose=0, timeout=REQUEST_TIMEOUT)
+                ans, unans = sr(IP(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id][0])[:65507], verbose=0, timeout=REQUEST_TIMEOUT)
             else:
-                ans, unans = sr(IPv6(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][sl][model_id][0])[:1452], verbose=0, timeout=REQUEST_TIMEOUT)
+                ans, unans = sr(IPv6(dst=self.targets[target_name].aut_host)/UDP(sport=self.targets[target_name].aut_src_port, dport=self.targets[target_name].aut_port)/str(self.fuzz_models[target_name][option_name][model_id][0])[:1452], verbose=0, timeout=REQUEST_TIMEOUT)
             time.sleep(INTERVAL_BETWEEN_REQUESTS)
             self.targets[target_name].post_send(ans[0] if ans else unans[0], option_name, model_id, target_path, (count+1) == total_model_tc)
             opt_tc += 1
@@ -251,30 +241,28 @@ class Fuzzer():
 
         opt_tc = 1
         self.total_opt_tc = 0
-        for sl in SMART_LEVEL_LIST:
-            for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                if run_all or ( ((option_name == 'header') or \
-                    ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                    ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                    ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
-                    self.total_opt_tc += model[1]
+        for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+            if run_all or ( ((option_name == 'header') or \
+                ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
+                ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
+                ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
+                self.total_opt_tc += model[1]
 
         initial_opt_crash_count = self.targets[target_name].crash_count
-        for sl in SMART_LEVEL_LIST:
-            for model_id, model in self.fuzz_models[target_name][option_name][sl].iteritems():
-                target_path = None
-                if run_all or ( ((option_name == 'header') or \
-                    ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
-                    ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
-                    ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
-                    msg = "Fuzzing %s | Model ID: %s | Smart Level: %d" %\
-                        ('Header' if option_name == 'header' else 'Option: %s' % option_name,
-                        model_id, sl)
-                    if option_name != 'header' and ("KU" in model_id):
-                        target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
-                        msg += " | Target Resource: %s" % target_path
+        for model_id, model in self.fuzz_models[target_name][option_name].iteritems():
+            target_path = None
+            if run_all or ( ((option_name == 'header') or \
+                ((option_name in RESERVED_LIST) and ('rs' not in model_id)) or \
+                ((option_model[option_name][1] == "string") and ('ss' not in model_id)) or \
+                ((option_name not in RESERVED_LIST) and (option_model[option_name][1] != "string") and ('Pss' not in model_id) and ('Sss' not in model_id))) ):
+                msg = "Fuzzing %s | Model ID: %s" %\
+                    ('Header' if option_name == 'header' else 'Option: %s' % option_name,
+                    model_id)
+                if option_name != 'header' and ("KU" in model_id):
+                    target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
+                    msg += " | Target Resource: %s" % target_path
 
-                    opt_tc = self.run_model(target_name, option_name, sl, model_id, opt_tc, msg, target_path)
+                opt_tc = self.run_model(target_name, option_name, model_id, opt_tc, msg, target_path)
 
 
         crash_msg = "Crashes for %s: %d" %\
@@ -304,7 +292,7 @@ USAGE = "USAGE: process_monitor_unix.py"\
         "\n    [-P|--aut_port aut_port]         Application Under Test's UDP port (CoAP dst)"\
         "\n    [-t|--aut_src_port aut_src_port] Target's UDP port (CoAP src)"\
         "\n    -d|--output_dir dir              directory where output files are put "\
-        "\n                                     (as in 'output/<target_name>/<run_id>')"
+        "\n                                     (as in 'output/<target_name>')"
 
 ERR   = lambda msg: sys.stderr.write("ERR> " + msg + "\n") or sys.exit(1)
 
