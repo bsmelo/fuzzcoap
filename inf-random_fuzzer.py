@@ -22,11 +22,6 @@ from utils import *
 FORCE_SMALL_TC_NUM = False
 RUN_ALL = False
 
-##### General parameters
-# For reproducibility
-#RANDOM_SEED = "Let's fuzz CoAP!"
-#random.seed(RANDOM_SEED)
-
 ##### Scapy parameters
 # Use loopback interface
 if not TARGET_IPV6:
@@ -35,8 +30,6 @@ if not TARGET_IPV6:
 ##### Probing parameters
 # List of the smartness levels to run
 SMART_LEVEL_LIST = [0]
-# Run Common ('') and/or Large ('-L') packets?
-PACKET_LEN_LIST = ['', '-L']
 # Timing (in seconds)
 INTERVAL_BETWEEN_REQUESTS = 0.00001
 REQUEST_TIMEOUT = 0.00005
@@ -103,7 +96,6 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
 
     mf.setup(target_name)
 
-    # [ header, uint, bigger uint, uint special, uint special, uint special, empty, opaque, string, string special, string special ]
     # Random and Informed Random fuzzers have no knowledge of CoAP Options
     active_option_list = []
 
@@ -192,6 +184,7 @@ class Fuzzer():
 
         self.targets[target_name].pedrpc_connect()
         self.targets[target_name].start_target()
+        time.sleep(1)
         self.targets[target_name].init_known_paths()
         time.sleep(1)
 
@@ -210,31 +203,23 @@ class Fuzzer():
             longest_uri_len_ext += 0 if len(segment) < 13 else (1 if len(segment) < 269 else 2)
         longest_uri_num_paths = longest_uri.count('/') + 1
         
-
-        # 'R': Random Options (and possibly Random Payload)
+        # 'HO': Header Only (sent to a Known Uri)
         # 'EP': Empty Payload (sent to a Known Uri)
         # 'RP': Random Payload (sent to a Known Uri)
         self.fuzz_models[target_name] = OrderedDict()
         self.fuzz_models[target_name]['header'] = [ OrderedDict(), OrderedDict(), OrderedDict(), OrderedDict() ]
 
-        # Smartness Level = 0 ---> Full Random
-        self.fuzz_models[target_name]['header'][0]['EP'] = [fuzz(CoAP(token=RandBin(RandNum(0, 15)),
+        self.fuzz_models[target_name]['header'][0]['HO'] = [fuzz(CoAP(token=RandBin(RandNum(0, 15)),
             options=RandEnumKeys(self.target_paths[target_name]), paymark='')
-        ), HEADER_MODEL_TC_NUM] # A # generate weird packets fuzzing only the header fields, directed to the known paths
-            # To force a Payload on the Full Random packet, we need a sane Token and at least one Option
-        #self.fuzz_models[target_name]['header'][0]['RP'] = [fuzz(CoAP(token=RandBin(RandNum(0, 8)),
-        #    options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()
-        #), HEADER_MODEL_TC_NUM] # 2 # adds a payload to the previously generated weird packet # TODO: this can be removed
-
-        self.fuzz_models[target_name]['header'][0]['EP-L'] = [fuzz(CoAP(token=RandBin(RandNum(0, 15)),
+        ), HEADER_MODEL_TC_NUM] # generates weird packets fuzzing only the header fields, directed to the known paths
+        self.fuzz_models[target_name]['header'][0]['EP'] = [fuzz(CoAP(token=RandBin(RandNum(0, 15)),
             options=RandEnumKeys(self.target_paths[target_name]), paymark=''))/Raw(load=RandEnumKeys(
             [ RandBin(i) for i in SeqSingNum(0, 2**16-1 - (20+8) - (4+15+longest_uri_num_paths+longest_uri_len_ext+longest_uri_len), neg=False, overflow_max=False)._choice ]
         )), HEADER_MODEL_TC_NUM] # adds weird options creating packets of *any* size to the A packets
-        self.fuzz_models[target_name]['header'][0]['RP-L'] = [fuzz(CoAP(token=RandBin(RandNum(0, 8)),
+        self.fuzz_models[target_name]['header'][0]['RP'] = [fuzz(CoAP(token=RandBin(RandNum(0, 8)),
             options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff'))/Raw(load=RandEnumKeys(
             [ RandBin(i) for i in SeqSingNum(0, 2**16-1 - (20+8) - (4+8+longest_uri_num_paths+longest_uri_len_ext+longest_uri_len+1), neg=False, overflow_max=False)._choice ]
         )), HEADER_MODEL_TC_NUM] # adds weird payloads creating packets of *any* size to the A packets
-
 
         self.info[target_name]['total_active_models'] += len(SMART_LEVEL_LIST) * len(self.fuzz_models[target_name]['header'][SMART_LEVEL_LIST[0]])
 
@@ -353,7 +338,7 @@ if __name__ == "__main__":
     opts = None
     try:
         opts, args = getopt.getopt(sys.argv[1:], "h:p:H:P:t:d:",
-            ["host=", "port=", "aut_host", "aut_port", "aut_src_port", "output_dir="] )
+            ["host=", "port=", "aut_host=", "aut_port=", "aut_src_port=", "output_dir="] )
     except getopt.GetoptError:
         ERR(USAGE)
 
@@ -383,19 +368,19 @@ if __name__ == "__main__":
     if not os.path.isdir(output_dir):
         ERR("output_dir must be an existing directory")
 
-    if not host:
+    if not host or host == "-1":
         host = PROCMON_DEFAULT_DST_HOST
 
-    if not port:
+    if not port or port == -1:
         port = PROCMON_DEFAULT_DST_PORT
 
-    if not aut_host:
+    if not aut_host or aut_host == "-1":
         aut_host = COAP_AUT_DEFAULT_DST_HOST 
 
-    if not aut_port:
+    if not aut_port or aut_port == -1:
         aut_port = COAP_AUT_DEFAULT_DST_PORT
 
-    if not aut_src_port:
+    if not aut_src_port or aut_src_port == -1:
         aut_src_port = COAP_AUT_DEFAULT_SRC_PORT
 
     interact(mydict=globals(), mybanner="Informed Random Fuzzer v0.5", argv=[])

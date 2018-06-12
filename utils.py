@@ -2,7 +2,7 @@ from target_list import *
 from scapy.all import *
 
 # IPv6?
-TARGET_IPV6 = True
+TARGET_IPV6 = False
 
 PROCMON_DEFAULT_DST_HOST = "127.0.0.1"
 PROCMON_DEFAULT_DST_PORT = 35111

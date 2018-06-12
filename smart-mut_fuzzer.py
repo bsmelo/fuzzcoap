@@ -22,11 +22,6 @@ from utils import *
 FORCE_SMALL_TC_NUM = False
 RUN_ALL = False
 
-##### General parameters
-# For reproducibility
-#RANDOM_SEED = "Let's fuzz CoAP!"
-#random.seed(RANDOM_SEED)
-
 ##### Scapy parameters
 # Use loopback interface
 if not TARGET_IPV6:
@@ -35,14 +30,9 @@ if not TARGET_IPV6:
 ##### Probing parameters
 # List of the smartness levels to run (TODO: always 0 anyway)
 SMART_LEVEL_LIST = [0]
-# Run Common and/or Large packets? (TODO: remove)
-PACKET_LEN_LIST = ['-L']
 # Timing (in seconds)
 INTERVAL_BETWEEN_REQUESTS = 0.00001
 REQUEST_TIMEOUT = 0.00005
-# Number of Test Cases (TCs) to run for each packet model type
-HEADER_MODEL_TC_NUM = 2 #100
-#OPTION_MODEL_TC_NUM = 50 (TODO: remove)
 
 MAX_MODEL_CRASH = 50
 RESPONSE_OPTIONS = [ "Location-Path", "Max-Age", "Location-Query" ]
@@ -494,6 +484,7 @@ class Fuzzer():
 
         self.targets[target_name].pedrpc_connect()
         self.targets[target_name].start_target()
+        time.sleep(1)
         self.targets[target_name].init_known_paths()
         time.sleep(1)
 
@@ -513,7 +504,7 @@ class Fuzzer():
         self.fuzz_models[target_name]['payload'] = [ OrderedDict() ]
         self.fuzz_models[target_name]['field'] = [ OrderedDict() ]
 
-        pcap_pkts = rdpcap("misc/conversation.pcapng")
+        pcap_pkts = rdpcap("conversation.pcapng")
 
         origin_pkts = {'string': [], 'opaque': [], 'uint': [], 'empty': [], 'payload': [], 'field': []}
         for pkt in pcap_pkts:
@@ -682,7 +673,7 @@ if __name__ == "__main__":
     opts = None
     try:
         opts, args = getopt.getopt(sys.argv[1:], "h:p:H:P:t:d:",
-            ["host=", "port=", "aut_host", "aut_port", "aut_src_port", "output_dir="] )
+            ["host=", "port=", "aut_host=", "aut_port=", "aut_src_port=", "output_dir="] )
     except getopt.GetoptError:
         ERR(USAGE)
 
@@ -712,19 +703,19 @@ if __name__ == "__main__":
     if not os.path.isdir(output_dir):
         ERR("output_dir must be an existing directory")
 
-    if not host:
+    if not host or host == "-1":
         host = PROCMON_DEFAULT_DST_HOST
 
-    if not port:
+    if not port or port == -1:
         port = PROCMON_DEFAULT_DST_PORT
 
-    if not aut_host:
+    if not aut_host or aut_host == "-1":
         aut_host = COAP_AUT_DEFAULT_DST_HOST 
 
-    if not aut_port:
+    if not aut_port or aut_port == -1:
         aut_port = COAP_AUT_DEFAULT_DST_PORT
 
-    if not aut_src_port:
+    if not aut_src_port or aut_src_port == -1:
         aut_src_port = COAP_AUT_DEFAULT_SRC_PORT
 
     interact(mydict=globals(), mybanner="Smart Mutational Fuzzer v0.5", argv=[])

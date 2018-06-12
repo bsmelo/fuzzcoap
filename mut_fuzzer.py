@@ -22,11 +22,6 @@ from utils import *
 FORCE_SMALL_TC_NUM = False
 RUN_ALL = False
 
-##### General parameters
-# For reproducibility
-#RANDOM_SEED = "Let's fuzz CoAP!"
-#random.seed(RANDOM_SEED)
-
 ##### Scapy parameters
 # Use loopback interface
 if not TARGET_IPV6:
@@ -35,19 +30,17 @@ if not TARGET_IPV6:
 ##### Probing parameters
 # List of the smartness levels to run (TODO: always 0 anyway)
 SMART_LEVEL_LIST = [0]
-# Run Common and/or Large packets? (TODO: remove)
-PACKET_LEN_LIST = ['-L']
 # Timing (in seconds)
 INTERVAL_BETWEEN_REQUESTS = 0.00001
 REQUEST_TIMEOUT = 0.00005
 # Number of Test Cases (TCs) to run for each packet model type
-HEADER_MODEL_TC_NUM = 100 #1000
+HEADER_MODEL_TC_NUM = 100
 
-MAX_MODEL_CRASH = 5 #50
+MAX_MODEL_CRASH = 5
 RESPONSE_OPTIONS = [ "Location-Path", "Max-Age", "Location-Query" ]
-MAX_MODEL_CRASH_RESPONSE_OPTION = 1 #10
+MAX_MODEL_CRASH_RESPONSE_OPTION = 1
 PROXY_OPTIONS = [ "Proxy-Uri", "Proxy-Scheme" ]
-MAX_MODEL_CRASH_PROXY_OPTION = 2 #20
+MAX_MODEL_CRASH_PROXY_OPTION = 2
 
 # TODO: Document this
 RESERVED_LIST = ["Observe", "Uri-Port", "Content-Format", "Max-Age", "Accept", "Size2", "Size1"]
@@ -102,7 +95,6 @@ def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_POR
 
     mf.setup(target_name)
 
-    # [ header, uint, bigger uint, uint special, uint special, uint special, empty, opaque, string, string special, string special ]
     active_option_list = ['bits', 'bytes']
 
     for o in active_option_list:
@@ -177,22 +169,13 @@ class Fuzzer():
 
         self.targets[target_name].pedrpc_connect()
         self.targets[target_name].start_target()
-        self.targets[target_name].init_known_paths()
         time.sleep(1)
-
-        self.target_paths[target_name] = []
-        kp_i = 0
-        for kp in self.targets[target_name].known_paths:
-            self.target_paths[target_name].append([])
-            for segment in kp.split('/'):
-                self.target_paths[target_name][kp_i].append((11L, segment))
-            kp_i = kp_i + 1
 
         self.fuzz_models[target_name] = OrderedDict()
         self.fuzz_models[target_name]['bits'] = []
         self.fuzz_models[target_name]['bytes'] = []
 
-        pcap_pkts = rdpcap("misc/conversation.pcapng")
+        pcap_pkts = rdpcap("conversation.pcapng")
 
         for pkt in pcap_pkts:
             if pkt.dport == 5683:
@@ -298,7 +281,7 @@ if __name__ == "__main__":
     opts = None
     try:
         opts, args = getopt.getopt(sys.argv[1:], "h:p:H:P:t:d:",
-            ["host=", "port=", "aut_host", "aut_port", "aut_src_port", "output_dir="] )
+            ["host=", "port=", "aut_host=", "aut_port=", "aut_src_port=", "output_dir="] )
     except getopt.GetoptError:
         ERR(USAGE)
 
@@ -328,19 +311,19 @@ if __name__ == "__main__":
     if not os.path.isdir(output_dir):
         ERR("output_dir must be an existing directory")
 
-    if not host:
+    if not host or host == "-1":
         host = PROCMON_DEFAULT_DST_HOST
 
-    if not port:
+    if not port or port == -1:
         port = PROCMON_DEFAULT_DST_PORT
 
-    if not aut_host:
+    if not aut_host or aut_host == "-1":
         aut_host = COAP_AUT_DEFAULT_DST_HOST 
 
-    if not aut_port:
+    if not aut_port or aut_port == -1:
         aut_port = COAP_AUT_DEFAULT_DST_PORT
 
-    if not aut_src_port:
+    if not aut_src_port or aut_src_port == -1:
         aut_src_port = COAP_AUT_DEFAULT_SRC_PORT
 
     interact(mydict=globals(), mybanner="Mutational Fuzzer v0.5", argv=[])
