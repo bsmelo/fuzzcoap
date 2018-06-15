@@ -11,112 +11,9 @@ from scapy.contrib.coap import *
 
 from boofuzz import pedrpc
 
+from utils import *
 from coap_target import Target
 from fuzzer_models import *
-from utils import *
-
-def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_PORT,
-    aut_host=COAP_AUT_DEFAULT_DST_HOST , aut_port=COAP_AUT_DEFAULT_DST_PORT, aut_src_port=COAP_AUT_DEFAULT_SRC_PORT):
-    my_seed = ord(os.urandom(1))
-    random.seed(my_seed)
-    print "Using %d as seed" % my_seed
-
-    target_name = output_dir.split('/')[1]
-
-    target_info = get_target_info_from_target_name(target_name, aut_host, aut_port)
-    try:
-        target_env = target_info['env']
-    except KeyError:
-        target_env = {}
-
-    # Pass specified target parameters to the PED-RPC server
-    target = Target(
-        name=target_name,
-        aut_host=aut_host,
-        aut_port=aut_port,
-        aut_src_port=aut_src_port,
-        aut_heartbeat_path=target_info['heartbeat_path'],
-        aut_default_uris=target_info['default_uris'],
-        aut_strings=target_info.get('strings', []),
-        procmon=pedrpc.Client(host, port),
-        procmon_options={
-            'start_commands': [target_info['start_cmd']],
-            'time_to_settle': target_info['time_to_settle'],
-            'env': target_env,
-        },
-        output_dir=output_dir
-    )
-
-    bind_layers(UDP, CoAP, sport=aut_port)
-    bind_layers(UDP, CoAP, dport=aut_port)
-    bind_layers(UDP, CoAP, sport=aut_src_port)
-    bind_layers(UDP, CoAP, dport=aut_src_port)
-
-    mf = Fuzzer({ target_name: target })
-    mf.targets[target_name].summaryfile.write("Using %d as seed\n\n" % my_seed)
-
-    # Signal Handler defined here so we can access the files by closure
-    def signal_handler(signal, frame):
-        print "\nSIGINT Received"
-        mf.targets[target_name].stop_target()
-        sys.exit(signal)
-    signal.signal(signal.SIGINT, signal_handler)
-
-    mf.setup(target_name)
-
-    active_option_list = option_model.keys()
-
-    for o in active_option_list:
-        mf.targets[target_name].log(o)
-        mf.setup_option(target_name, o)
-
-    models = []
-    tcs = []
-    optimum_models = []
-    optimum_tcs = []
-    reduc_models = []
-    reduc_tcs = []
-    for o in ['header'] + active_option_list:
-        tc_num = 0
-        stc_num = 0
-        smodel_num = 0
-        for k,v in mf.fuzz_models[target_name][o].iteritems():
-            tc_num += v[1]
-            stc_num += v[1]
-            smodel_num += 1
-        models.append(len(mf.fuzz_models[target_name][o]))
-        tcs.append(tc_num)
-        optimum_models.append(smodel_num)
-        optimum_tcs.append(stc_num)
-        reduc_models.append("{0:.2f}%".format(  (float(optimum_models[-1])/models[-1])*100  ))
-        reduc_tcs.append("{0:.2f}%".format(  (float(optimum_tcs[-1])/tcs[-1])*100  ))
-    table_str = Table(
-        Column( "Option Name",
-            [ o for o in ['header'] + active_option_list ] + ["="*15, "Total"], align=ALIGN.LEFT ),
-        Column( "Models", models + ["="*15, sum(models)] ),
-        Column( "TCs", tcs + ["="*15, sum(tcs)] ),
-        Column( "Optimum Models", optimum_models + ["="*15, sum(optimum_models)] ),
-        Column( "Optimum TCs", optimum_tcs + ["="*15, sum(optimum_tcs)] ),
-        Column( "% of all Models",
-            reduc_models + ["="*15, "{0:.2f}%".format((float(sum(optimum_models))/sum(models))*100)] ),
-        Column( "% of all TCs",
-            reduc_tcs + ["="*15, "{0:.2f}%".format(  (float(sum(optimum_tcs))/sum(tcs))*100)] ),
-    )
-    print table_str
-    mf.targets[target_name].summaryfile.write(str(table_str)+'\n\n\n')
-
-    start = time.time()
-    mf.run_header(target_name)
-    for o in active_option_list:
-       mf.targets[target_name].restart_target()
-       mf.run_option(target_name, o)
-    time_msg = "Total Time: %.5fs" % (time.time() - start)
-    print time_msg
-    mf.targets[target_name].summaryfile.write(time_msg)
-
-    mf.targets[target_name].stop_target()
-
-    return mf
 
 ##################################################################################################
 # Fuzzer Object
@@ -139,56 +36,28 @@ class Fuzzer():
 
         return tc_num
 
+    def print_table(self):
+        models = []
+        tcs = []
+        for target_name in self.fuzz_models.keys():
+            for o in self.info[target_name]['active_options']:
+                tc_num = 0
+                for k,v in self.fuzz_models[target_name][o].iteritems():
+                    tc_num += v[1]
+                models.append(len(self.fuzz_models[target_name][o]))
+                tcs.append(tc_num)
+            table_str = Table(
+                Column( "Option Name",
+                    [ o for o in self.info[target_name]['active_options'] ] + ["="*22, "Total"], align=ALIGN.LEFT ),
+                Column( "Templates/Generators", models + ["="*22, sum(models)] ),
+                Column( "Test Cases", tcs + ["="*22, sum(tcs)] ),
+            )
+            print table_str
+            self.targets[target_name].summaryfile.write(str(table_str)+'\n\n\n')
+
 ##################################################################################################
 # Fuzzer Object: Setup Functions
 ##################################################################################################
-
-    def setup(self, target_name):
-        self.info[target_name] = {}
-        self.info[target_name]['total_active_models'] = 0
-
-        self.targets[target_name].pedrpc_connect()
-        self.targets[target_name].start_target()
-        time.sleep(1)
-        self.targets[target_name].init_known_paths()
-        time.sleep(1)
-
-        self.target_paths[target_name] = []
-        kp_i = 0
-        for kp in self.targets[target_name].known_paths:
-            self.target_paths[target_name].append([])
-            for segment in kp.split('/'):
-                self.target_paths[target_name][kp_i].append((11L, segment))
-            kp_i = kp_i + 1
-
-        # 'R': Random Options (and possibly Random Payload)
-        # 'EP': Empty Payload (sent to a Known Uri)
-        # 'RP': Random Payload (sent to a Known Uri)
-        self.fuzz_models[target_name] = OrderedDict()
-        self.fuzz_models[target_name]['header'] = OrderedDict()
-
-        # ---> Correct Version (1)
-        # ---> Method Codes [GET, POST, PUT, DELETE] for Requests
-        # ---> Message Types [CON, NON] for Requests and Sane Token (0..8 bytes)
-        # R-L generate weird packets fuzzing all fields (including options), not directed at any specific path
-        # All Random - Untargetted
-        self.fuzz_models[target_name]['header']['R-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=[]))/
-            Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), K_ALL_GEN]
-        # EP-L fuzzes all fields but is directed to the known paths
-        # Empty Payload - Targeted
-        self.fuzz_models[target_name]['header']['EP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark=''))/
-            Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), K_ALL_GEN]
-        # RP-L fuzzes all fields, directed to the known paths, but ensures a payload is present
-        # Random Payload - Targeted
-        self.fuzz_models[target_name]['header']['RP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff'))/
-            Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), K_ALL_GEN]
-            # Special cases for Message ID and Token ID, the only rather large fields at the header, thus deserving this special treatment
-        self.fuzz_models[target_name]['header']['MID'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), msg_id=SeqSingNum(0, 2**16-1, neg=False, overflow_max=False), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), len(SeqSingNum(0, 2**16-1, neg=False)._choice)] # 49 Singular Values
-        self.fuzz_models[target_name]['header']['TKN'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandEnumKeys([ SeqSingBin(i) for i in SeqSingNum(0, 8, neg=False)._choice ]), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), len(SeqSingBin(1)._choice) * len(SeqSingNum(0, 8, neg=False)._choice)] # 603 Singular Values
-
-        self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name]['header'])
-
-        self.total_tc = self.get_total_tc()
 
     def setup_model(self, target_name, option_name, nmi, nmo, tc_num=None):
         # nmi: new_model_id; nmo: new_model_options
@@ -485,7 +354,63 @@ class Fuzzer():
         elif option_type in ['uint', 'empty']:
             self.setup_uint_or_empty_option(target_name, option_type, option_name, min_len, max_len, rand_class, rand_sing_class, seq_sing_class, special_classes, opt_ext_list)
 
+    def setup(self, target_name):
+        self.info[target_name] = {}
+        self.info[target_name]['total_active_models'] = 0
+        self.info[target_name]['active_options'] = ['header', 'If-Match', 'Uri-Host',
+            'ETag', 'If-None-Match', 'Observe', 'Uri-Port', 'Location-Path', 'Uri-Path',
+            'Content-Format', 'Max-Age', 'Uri-Query', 'Accept', 'Location-Query', 'Block2',
+            'Block1', 'Size2', 'Proxy-Uri', 'Proxy-Scheme', 'Size1']
+
+        self.targets[target_name].pedrpc_connect()
+        self.targets[target_name].start_target()
+        time.sleep(1)
+        self.targets[target_name].init_known_paths()
+        time.sleep(1)
+
+        self.target_paths[target_name] = []
+        kp_i = 0
+        for kp in self.targets[target_name].known_paths:
+            self.target_paths[target_name].append([])
+            for segment in kp.split('/'):
+                self.target_paths[target_name][kp_i].append((11L, segment))
+            kp_i = kp_i + 1
+
+        # 'R': Random Options (and possibly Random Payload)
+        # 'EP': Empty Payload (sent to a Known Uri)
+        # 'RP': Random Payload (sent to a Known Uri)
+        self.fuzz_models[target_name] = OrderedDict()
+        self.fuzz_models[target_name]['header'] = OrderedDict()
+
+        # ---> Correct Version (1)
+        # ---> Method Codes [GET, POST, PUT, DELETE] for Requests
+        # ---> Message Types [CON, NON] for Requests and Sane Token (0..8 bytes)
+        # R-L generate weird packets fuzzing all fields (including options), not directed at any specific path
+        # All Random - Untargetted
+        self.fuzz_models[target_name]['header']['R-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=[]))/
+            Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), K_ALL_GEN]
+        # EP-L fuzzes all fields but is directed to the known paths
+        # Empty Payload - Targeted
+        self.fuzz_models[target_name]['header']['EP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark=''))/
+            Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), K_ALL_GEN]
+        # RP-L fuzzes all fields, directed to the known paths, but ensures a payload is present
+        # Random Payload - Targeted
+        self.fuzz_models[target_name]['header']['RP-L'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff'))/
+            Raw(load=RandEnumKeys([ RandSingString(i) for i in SeqSingNum(0, 2**16-1 - 4096, neg=False, overflow_max=False)._choice ])), K_ALL_GEN]
+            # Special cases for Message ID and Token ID, the only rather large fields at the header, thus deserving this special treatment
+        self.fuzz_models[target_name]['header']['MID'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandBin(RandNum(0, 8)), msg_id=SeqSingNum(0, 2**16-1, neg=False, overflow_max=False), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), len(SeqSingNum(0, 2**16-1, neg=False)._choice)] # 49 Singular Values
+        self.fuzz_models[target_name]['header']['TKN'] = [fuzz(CoAP(ver=1L, type=RandNum(0, 1), code=RandNum(1, 4), token=RandEnumKeys([ SeqSingBin(i) for i in SeqSingNum(0, 8, neg=False)._choice ]), options=RandEnumKeys(self.target_paths[target_name]), paymark='\xff')/Raw()), len(SeqSingBin(1)._choice) * len(SeqSingNum(0, 8, neg=False)._choice)] # 603 Singular Values
+
+        self.info[target_name]['total_active_models'] += len(self.fuzz_models[target_name]['header'])
+
+        for option_name in self.info[target_name]['active_options']:
+            if option_name != 'header':
+                self.setup_option(target_name, option_name)
+
         self.total_tc = self.get_total_tc()
+
+        self.print_table()
+
 
 ##################################################################################################
 # Fuzzer Object: Running Functions
@@ -567,19 +492,33 @@ class Fuzzer():
         
         self.targets[target_name].log("="*120)
 
-    def run_header(self, target_name):
-        self.run_option(target_name, 'header')
+    def run(self):
+        for target_name in self.fuzz_models.keys():
+            start = time.time()
+            first_option = True
+            for option_name in self.fuzz_models[target_name].keys():
+                if not first_option:
+                    self.targets[target_name].restart_target()
+                    first_option = False
+                self.run_option(target_name, option_name)
+            time_msg = "Total Time: %.5fs" % (time.time() - start)
+            print time_msg
+            self.targets[target_name].summaryfile.write(time_msg)
+
+            self.targets[target_name].stop_target()
 
 ##################################################################################################
 # Main
 ##################################################################################################
 
-USAGE = "USAGE: process_monitor_unix.py"\
+USAGE = "USAGE: gen_fuzzer.py"\
+        "\n    [-t|--target_name tname]         Application/System Under Test's Identifier " \
+        "\n                                     (from target_list.py)" \
         "\n    [-h|--host ipv4]                 Process Monitor's Host" \
         "\n    [-p|--port port]                 Process Monitor's TCP port"\
-        "\n    [-H|--aut_host aut_ipv4]         Application Under Test's Host" \
-        "\n    [-P|--aut_port aut_port]         Application Under Test's UDP port (CoAP dst)"\
-        "\n    [-t|--aut_src_port aut_src_port] Target's UDP port (CoAP src)"\
+        "\n    [-H|--aut_host aut_ipv4]         Application/System Under Test's Host" \
+        "\n    [-P|--aut_port aut_port]         Application/System Under Test's UDP port (CoAP dst)"\
+        "\n    [-c|--aut_src_port aut_src_port] CoAP source port (CoAP src)"\
         "\n    -d|--output_dir dir              directory where output files are put "\
         "\n                                     (as in 'output/<target_name>')"
 
@@ -589,11 +528,12 @@ if __name__ == "__main__":
     # parse command line options.
     opts = None
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "h:p:H:P:t:d:",
-            ["host=", "port=", "aut_host=", "aut_port=", "aut_src_port=", "output_dir="] )
+        opts, args = getopt.getopt(sys.argv[1:], "t:h:p:H:P:c:d:",
+            ["target_name=", "host=", "port=", "aut_host=", "aut_port=", "aut_src_port=", "output_dir="] )
     except getopt.GetoptError:
         ERR(USAGE)
 
+    target_name = None
     host = None
     port = None
     aut_host = None
@@ -601,6 +541,8 @@ if __name__ == "__main__":
     aut_src_port = None
     coredump_dir = None
     for opt, arg in opts:
+        if opt in ("-t", "--target_name"):
+            target_name  = arg
         if opt in ("-h", "--host"):
             host  = arg
         if opt in ("-p", "--port"):
@@ -614,7 +556,7 @@ if __name__ == "__main__":
         if opt in ("-d", "--output_dir"):
             output_dir = arg
 
-    if not output_dir:
+    if not output_dir or not target_name:
         ERR(USAGE)
 
     if not os.path.isdir(output_dir):
@@ -635,4 +577,49 @@ if __name__ == "__main__":
     if not aut_src_port or aut_src_port == -1:
         aut_src_port = COAP_AUT_DEFAULT_SRC_PORT
 
-    interact(mydict=globals(), mybanner="Generational Fuzzer v0.5", argv=[])
+    my_seed = ord(os.urandom(1))
+    random.seed(my_seed)
+    print "Using %d as seed" % my_seed
+
+    # Retrieve SUT-specific configuration from target_list.py
+    target_info = get_target_info_from_target_name(target_name, aut_host, aut_port)
+    try:
+        target_env = target_info['env']
+    except KeyError:
+        target_env = {}
+
+    # Pass specified target parameters to the PED-RPC server
+    target = Target(
+        name=target_name,
+        aut_host=aut_host,
+        aut_port=aut_port,
+        aut_src_port=aut_src_port,
+        aut_heartbeat_path=target_info['heartbeat_path'],
+        aut_default_uris=target_info['default_uris'],
+        aut_strings=target_info.get('strings', []),
+        procmon=pedrpc.Client(host, port),
+        procmon_options={
+            'start_commands': [target_info['start_cmd']],
+            'time_to_settle': target_info['time_to_settle'],
+            'env': target_env,
+        },
+        output_dir=output_dir
+    )
+
+    bind_layers(UDP, CoAP, sport=aut_port)
+    bind_layers(UDP, CoAP, dport=aut_port)
+    bind_layers(UDP, CoAP, sport=aut_src_port)
+    bind_layers(UDP, CoAP, dport=aut_src_port)
+
+    mf = Fuzzer({ target_name: target })
+    mf.targets[target_name].summaryfile.write("Using %d as seed\n\n" % my_seed)
+
+    # Signal Handler defined here so we can access the files by closure
+    def signal_handler(signal, frame):
+        print "\nSIGINT Received"
+        mf.targets[target_name].stop_target()
+        sys.exit(signal)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    mf.setup(target_name)
+    mf.run()

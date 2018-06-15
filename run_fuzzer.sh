@@ -106,10 +106,10 @@ then
     if [ -z ${DEBUG+x} ]
     then
         echo "Running Fuzzer"
-        set -x; sudo python $FUZZER_SCRIPT --host $PMHOST --port $PMPORT --aut_host $CDHOST --aut_port $CDPORT --aut_src_port $CSPORT --output_dir $folder
+        set -x; sudo python $FUZZER_SCRIPT --target_name $TARGET --host $PMHOST --port $PMPORT --aut_host $CDHOST --aut_port $CDPORT --aut_src_port $CSPORT --output_dir $folder
     else
         echo "Running Fuzzer in DEBUG mode"
-        set -x; sudo stdbuf -o 0 pdb $FUZZER_SCRIPT --host $PMHOST --port $PMPORT --aut_host $CDHOST --aut_port $CDPORT --aut_src_port $CSPORT --output_dir $folder 2>&1 | tee $folder/fuzzer.log
+        set -x; sudo stdbuf -o 0 pdb $FUZZER_SCRIPT --target_name $TARGET --host $PMHOST --port $PMPORT --aut_host $CDHOST --aut_port $CDPORT --aut_src_port $CSPORT --output_dir $folder 2>&1 | tee $folder/fuzzer.log
     fi
 else
     exit 0

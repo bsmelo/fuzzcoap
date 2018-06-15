@@ -9,6 +9,7 @@ from scapy.contrib.coap import *
 from coapthon.client.helperclient import HelperClient
 from coapthon import defines
 
+from utils import *
 from fuzzer_models import *
 
 # Number of unanswered packets before sending a heartbeat

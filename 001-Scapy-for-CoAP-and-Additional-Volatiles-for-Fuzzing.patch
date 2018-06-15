@@ -163,9 +163,18 @@ index 1d0de06..1bc7c4f 100644
                  for p in res[1]:
                      print col(prnfail(p))
 diff --git a/scapy/volatile.py b/scapy/volatile.py
-index 73892a7..e009cc0 100644
+index 73892a7..026c1ca 100644
 --- a/scapy/volatile.py
 +++ b/scapy/volatile.py
+@@ -7,7 +7,7 @@
+ Fields that hold random numbers.
+ """
+ 
+-import random,time,math
++import random,time,math,struct
+ from scapy.base_classes import Net
+ from scapy.utils import corrupt_bits,corrupt_bytes
+ 
 @@ -73,13 +73,19 @@ class VolatileValue:
          if attr == "__setstate__":
              raise AttributeError(attr)

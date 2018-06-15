@@ -11,103 +11,11 @@ from scapy.contrib.coap import *
 
 from boofuzz import pedrpc
 
+from utils import *
 from coap_target import Target
 from fuzzer_models import *
-from utils import *
 
 smart_mutated_value = None
-
-def test(output_dir, host=PROCMON_DEFAULT_DST_HOST, port=PROCMON_DEFAULT_DST_PORT,
-    aut_host=COAP_AUT_DEFAULT_DST_HOST , aut_port=COAP_AUT_DEFAULT_DST_PORT, aut_src_port=COAP_AUT_DEFAULT_SRC_PORT):
-    my_seed = ord(os.urandom(1))
-    random.seed(my_seed)
-    print "Using %d as seed" % my_seed
-
-    target_name = output_dir.split('/')[1]
-
-    target_info = get_target_info_from_target_name(target_name, aut_host, aut_port)
-    try:
-        target_env = target_info['env']
-    except KeyError:
-        target_env = {}
-
-    # Pass specified target parameters to the PED-RPC server
-    target = Target(
-        name=target_name,
-        aut_host=aut_host,
-        aut_port=aut_port,
-        aut_src_port=aut_src_port,
-        aut_heartbeat_path=target_info['heartbeat_path'],
-        aut_default_uris=target_info['default_uris'],
-        aut_strings=target_info.get('strings', []),
-        procmon=pedrpc.Client(host, port),
-        procmon_options={
-            'start_commands': [target_info['start_cmd']],
-            'time_to_settle': target_info['time_to_settle'],
-            'env': target_env,
-        },
-        output_dir=output_dir
-    )
-
-    bind_layers(UDP, CoAP, sport=aut_port)
-    bind_layers(UDP, CoAP, dport=aut_port)
-    bind_layers(UDP, CoAP, sport=aut_src_port)
-    bind_layers(UDP, CoAP, dport=aut_src_port)
-
-    mf = Fuzzer({ target_name: target })
-    mf.targets[target_name].summaryfile.write("Using %d as seed\n\n" % my_seed)
-
-    # Signal Handler defined here so we can access the files by closure
-    def signal_handler(signal, frame):
-        print "\nSIGINT Received"
-        mf.targets[target_name].stop_target()
-        sys.exit(signal)
-    signal.signal(signal.SIGINT, signal_handler)
-
-    mf.setup(target_name)
-
-    models = []
-    tcs = []
-    optimum_models = []
-    optimum_tcs = []
-    reduc_models = []
-    reduc_tcs = []
-    for o in mf.fuzz_models[target_name].keys():
-        tc_num = 0
-        for k,v in mf.fuzz_models[target_name][o].iteritems():
-            tc_num += v[1]
-        models.append(len(mf.fuzz_models[target_name][o]))
-        tcs.append(tc_num)
-        optimum_models.append(len(mf.fuzz_models[target_name][o]))
-        optimum_tcs.append(tc_num)
-        reduc_models.append("{0:.2f}%".format(  (float(optimum_models[-1])/models[-1])*100  ))
-        reduc_tcs.append("{0:.2f}%".format(  (float(optimum_tcs[-1])/tcs[-1])*100  ))
-    table_str = Table(
-        Column( "Option Name",
-            [ o for o in mf.fuzz_models[target_name].keys() ] + ["="*15, "Total"], align=ALIGN.LEFT ),
-        Column( "Models", models + ["="*15, sum(models)] ),
-        Column( "TCs", tcs + ["="*15, sum(tcs)] ),
-        Column( "Optimum Models", optimum_models + ["="*15, sum(optimum_models)] ),
-        Column( "Optimum TCs", optimum_tcs + ["="*15, sum(optimum_tcs)] ),
-        Column( "% of all Models",
-            reduc_models + ["="*15, "{0:.2f}%".format((float(sum(optimum_models))/sum(models))*100)] ),
-        Column( "% of all TCs",
-            reduc_tcs + ["="*15, "{0:.2f}%".format(  (float(sum(optimum_tcs))/sum(tcs))*100)] ),
-    )
-    print table_str
-    mf.targets[target_name].summaryfile.write(str(table_str)+'\n\n\n')
-
-    start = time.time()
-    for o in mf.fuzz_models[target_name].keys():
-       mf.targets[target_name].restart_target()
-       mf.run_option(target_name, o)
-    time_msg = "Total Time: %.5fs" % (time.time() - start)
-    print time_msg
-    mf.targets[target_name].summaryfile.write(time_msg)
-
-    mf.targets[target_name].stop_target()
-
-    return mf
 
 ##################################################################################################
 # Mutation Classes
@@ -422,7 +330,6 @@ class SmartFields(SmartValues):
             self._change_target(new_pkt)
         return str(new_pkt)[:65503]
 
-
 ##################################################################################################
 # Fuzzer Object
 ##################################################################################################
@@ -444,6 +351,25 @@ class Fuzzer():
 
         return tc_num
 
+    def print_table(self):
+        models = []
+        tcs = []
+        for target_name in self.fuzz_models.keys():
+            for o in self.info[target_name]['active_options']:
+                tc_num = 0
+                for k,v in self.fuzz_models[target_name][o].iteritems():
+                    tc_num += v[1]
+                models.append(len(self.fuzz_models[target_name][o]))
+                tcs.append(tc_num)
+            table_str = Table(
+                Column( "Option Name",
+                    [ o for o in self.info[target_name]['active_options'] ] + ["="*22, "Total"], align=ALIGN.LEFT ),
+                Column( "Templates/Generators", models + ["="*22, sum(models)] ),
+                Column( "Test Cases", tcs + ["="*22, sum(tcs)] ),
+            )
+            print table_str
+            self.targets[target_name].summaryfile.write(str(table_str)+'\n\n\n')
+
 ##################################################################################################
 # Fuzzer Object: Setup Functions
 ##################################################################################################
@@ -451,6 +377,7 @@ class Fuzzer():
     def setup(self, target_name):
         self.info[target_name] = {}
         self.info[target_name]['total_active_models'] = 0
+        self.info[target_name]['active_options'] = ['string', 'opaque', 'uint', 'empty', 'payload', 'field']
 
         self.targets[target_name].pedrpc_connect()
         self.targets[target_name].start_target()
@@ -539,6 +466,8 @@ class Fuzzer():
 
         self.total_tc = self.get_total_tc()
 
+        self.print_table()
+
 ##################################################################################################
 # Fuzzer Object: Running Functions
 ##################################################################################################
@@ -601,7 +530,7 @@ class Fuzzer():
             msg = "Fuzzing %s | Model ID: %s" %\
                 ('Header' if option_name == 'header' else 'Option: %s' % option_name,
                 model_id)
-            if option_name != 'header' and ("KU" in model_id): # TODO known uris
+            if option_name != 'header' and ("KU" in model_id):
                 target_path = (self.targets[target_name].known_paths[ int(model_id.split('_')[-1]) ])
                 msg += " | Target Resource: %s" % target_path
 
@@ -621,16 +550,33 @@ class Fuzzer():
         
         self.targets[target_name].log("="*120)
 
+    def run(self):
+        for target_name in self.fuzz_models.keys():
+            start = time.time()
+            first_option = True
+            for option_name in self.fuzz_models[target_name].keys():
+                if not first_option:
+                    self.targets[target_name].restart_target()
+                    first_option = False
+                self.run_option(target_name, option_name)
+            time_msg = "Total Time: %.5fs" % (time.time() - start)
+            print time_msg
+            self.targets[target_name].summaryfile.write(time_msg)
+
+            self.targets[target_name].stop_target()
+
 ##################################################################################################
 # Main
 ##################################################################################################
 
-USAGE = "USAGE: process_monitor_unix.py"\
+USAGE = "USAGE: smart-mut_fuzzer.py"\
+        "\n    [-t|--target_name tname]         Application/System Under Test's Identifier " \
+        "\n                                     (from target_list.py)" \
         "\n    [-h|--host ipv4]                 Process Monitor's Host" \
         "\n    [-p|--port port]                 Process Monitor's TCP port"\
-        "\n    [-H|--aut_host aut_ipv4]         Application Under Test's Host" \
-        "\n    [-P|--aut_port aut_port]         Application Under Test's UDP port (CoAP dst)"\
-        "\n    [-t|--aut_src_port aut_src_port] Target's UDP port (CoAP src)"\
+        "\n    [-H|--aut_host aut_ipv4]         Application/System Under Test's Host" \
+        "\n    [-P|--aut_port aut_port]         Application/System Under Test's UDP port (CoAP dst)"\
+        "\n    [-c|--aut_src_port aut_src_port] CoAP source port (CoAP src)"\
         "\n    -d|--output_dir dir              directory where output files are put "\
         "\n                                     (as in 'output/<target_name>')"
 
@@ -640,11 +586,12 @@ if __name__ == "__main__":
     # parse command line options.
     opts = None
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "h:p:H:P:t:d:",
-            ["host=", "port=", "aut_host=", "aut_port=", "aut_src_port=", "output_dir="] )
+        opts, args = getopt.getopt(sys.argv[1:], "t:h:p:H:P:c:d:",
+            ["target_name=", "host=", "port=", "aut_host=", "aut_port=", "aut_src_port=", "output_dir="] )
     except getopt.GetoptError:
         ERR(USAGE)
 
+    target_name = None
     host = None
     port = None
     aut_host = None
@@ -652,6 +599,8 @@ if __name__ == "__main__":
     aut_src_port = None
     coredump_dir = None
     for opt, arg in opts:
+        if opt in ("-t", "--target_name"):
+            target_name  = arg
         if opt in ("-h", "--host"):
             host  = arg
         if opt in ("-p", "--port"):
@@ -665,7 +614,7 @@ if __name__ == "__main__":
         if opt in ("-d", "--output_dir"):
             output_dir = arg
 
-    if not output_dir:
+    if not output_dir or not target_name:
         ERR(USAGE)
 
     if not os.path.isdir(output_dir):
@@ -686,4 +635,49 @@ if __name__ == "__main__":
     if not aut_src_port or aut_src_port == -1:
         aut_src_port = COAP_AUT_DEFAULT_SRC_PORT
 
-    interact(mydict=globals(), mybanner="Smart Mutational Fuzzer v0.5", argv=[])
+    my_seed = ord(os.urandom(1))
+    random.seed(my_seed)
+    print "Using %d as seed" % my_seed
+
+    # Retrieve SUT-specific configuration from target_list.py
+    target_info = get_target_info_from_target_name(target_name, aut_host, aut_port)
+    try:
+        target_env = target_info['env']
+    except KeyError:
+        target_env = {}
+
+    # Pass specified target parameters to the PED-RPC server
+    target = Target(
+        name=target_name,
+        aut_host=aut_host,
+        aut_port=aut_port,
+        aut_src_port=aut_src_port,
+        aut_heartbeat_path=target_info['heartbeat_path'],
+        aut_default_uris=target_info['default_uris'],
+        aut_strings=target_info.get('strings', []),
+        procmon=pedrpc.Client(host, port),
+        procmon_options={
+            'start_commands': [target_info['start_cmd']],
+            'time_to_settle': target_info['time_to_settle'],
+            'env': target_env,
+        },
+        output_dir=output_dir
+    )
+
+    bind_layers(UDP, CoAP, sport=aut_port)
+    bind_layers(UDP, CoAP, dport=aut_port)
+    bind_layers(UDP, CoAP, sport=aut_src_port)
+    bind_layers(UDP, CoAP, dport=aut_src_port)
+
+    mf = Fuzzer({ target_name: target })
+    mf.targets[target_name].summaryfile.write("Using %d as seed\n\n" % my_seed)
+
+    # Signal Handler defined here so we can access the files by closure
+    def signal_handler(signal, frame):
+        print "\nSIGINT Received"
+        mf.targets[target_name].stop_target()
+        sys.exit(signal)
+    signal.signal(signal.SIGINT, signal_handler)
+
+    mf.setup(target_name)
+    mf.run()
