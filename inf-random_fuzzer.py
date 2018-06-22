@@ -236,7 +236,7 @@ if __name__ == "__main__":
     aut_host = None
     aut_port = None
     aut_src_port = None
-    coredump_dir = None
+    output_dir = None
     for opt, arg in opts:
         if opt in ("-t", "--target_name"):
             target_name  = arg

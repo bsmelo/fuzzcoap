@@ -12,6 +12,7 @@ from coapthon import defines
 from utils import *
 from fuzzer_models import *
 
+# Heuristic #1 (Reduce the number of packet saved and Detect Restart failures) - Heartbeats
 # Number of unanswered packets before sending a heartbeat
 MAX_UNANS = 5
 # Number [to be kept] of packets sent to specific path
@@ -196,7 +197,7 @@ class Target(object):
         self.log("AUT-specific Strings (user-defined):\n"+str(self.opt_ext_list["string"]))
         self.summaryfile.write("AUT-specific Strings (user-defined):\n"+str(self.opt_ext_list["string"])+'\n')
 
-        # Comment below for Contiki or Canopus hack
+        # USER: Comment below for Contiki or Canopus hack
         client = HelperClient(server=(self.aut_host, self.aut_port))
         try:
            response = client.discover(timeout=5)
@@ -208,7 +209,7 @@ class Target(object):
                 self.log("Target doesn't implement discovery through GET .well-known/core")
                 pass
             pass
-        # Uncomment below for Contiki or Canopus hack
+        # USER: Uncomment below for Contiki or Canopus hack
         # class HackResp(object):
         #     code = defines.Codes.CONTENT.number
         #     # Contiki:
@@ -239,7 +240,7 @@ class Target(object):
 
         time.sleep(1)
 
-        # Comment below for Contiki or Canopus hack
+        # USER: Comment below for Contiki or Canopus hack
         client.stop()
 
     def get_mutated_value(self, option_name, model_id, rendered_pkt):
@@ -359,7 +360,7 @@ class Target(object):
             if ( not self.poll_pedrpc() ) or ( len(self.current_unans) >= MAX_UNANS ) or last_tc_from_model:
                 self.log("Sending Heartbeat...")
                 if self.heartbeat():
-                    # TODO: Erlang gen_coap hack; double-check to see if it's really dead
+                    # TODO/FIX: Erlang gen_coap hack; double-check to see if it's really dead
                     if "gen_coap" in self.name and self.heartbeat():
                         # Target still alive; finish this
                         self.current_unans = []

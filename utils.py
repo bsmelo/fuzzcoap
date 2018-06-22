@@ -1,4 +1,7 @@
+from collections import OrderedDict
+
 from target_list import *
+
 from scapy.all import *
 
 # USER: Target runs on IPv6?
@@ -28,7 +31,7 @@ COAP_AUT_DEFAULT_DST_PORT = 5683
 COAP_AUT_DEFAULT_SRC_PORT = 34552
 
 # USER: Probing parameters
-# Heuristic #2 - Thresholds
+# Heuristic #2 (Reduce the number of duplicated failures) - Thresholds
 MAX_MODEL_CRASH = 50 # Mut (5), Others (50)
 RESPONSE_OPTIONS = [ "Location-Path", "Max-Age", "Location-Query" ]
 MAX_MODEL_CRASH_RESPONSE_OPTION = 10 # Smart (50), Mut (1), Others (10)
@@ -78,6 +81,16 @@ class Table:
     def __str__(self):
         return '\n'.join(self.get_rows())   
 # End: https://stackoverflow.com/a/3685352
+
+def get_report(target_report):
+    d = OrderedDict(sorted(target_report.items(), key=lambda t: t[0]))
+
+    return Table(
+        Column( "File Name",            [ k.split('|')[0] for k in d.keys() ] + ["Total", "Unique"], align=ALIGN.LEFT ),
+        Column( "Line #",               [ k.split('|')[1] for k in d.keys() ] + ['', '']),
+        Column( "Exception/Function",   [ k.split('|')[2] for k in d.keys() ] + ['', ''], align=ALIGN.LEFT ),
+        Column( "Failed TCs",           map(len, d.values()) + [ sum(map(len, d.values())), len(d.keys()) ] )
+    )
 
 def californium_replace_port(aut_port):
     try:
