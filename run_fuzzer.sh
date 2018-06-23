@@ -1,5 +1,21 @@
 #!/bin/bash
 # Credits for the parameter parsing: https://stackoverflow.com/questions/192249/how-do-i-parse-command-line-arguments-in-bash
+
+# Copyright (C) 2018  Bruno Melo <brunom@lasca.ic.unicamp.br>
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 # USAGE: ./run_fuzzer.sh [-d|--debug] [-pdh|--procmon-dst-host pdh] [-pdp|--procmon-dst-port pdp] [-cdh|--coap-dst-host cdh] [-cdp|--coap-dst-port cdp] [-csp|--coap-src-port csp] --engine|-e gen|smart-mut|mut|inf-random|random|g|s|m|i|r --target|-t target_name base_folder/target_name
 # Defaults (from utils.py):
 # --- procmon_dst_host  = "127.0.0.1"     (PROCMON_DEFAULT_DST_HOST)

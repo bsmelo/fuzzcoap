@@ -1,5 +1,8 @@
 # fuzzcoap
-FuzzCoAP is ...TODO description.
+FuzzCoAP is a system comprising a complete environment for testing robustness and security aspects of CoAP server-side implementations and applications. Five black-box fuzzing techniques were implemented in FuzzCoAP: Random, Informed Random, Mutational, Smart Mutational and Generational fuzzers. It was designed and implemented during the production of my MSc. Dissertation, and used to test 25 samples (applications), covering 25 different CoAP libraries (implementations) distributed across 8 programming languages, including samples from IoT-specific operating systems RIOT OS and Contiki-NG. FuzzCoAP was able to detect a total of 100 failures in 14 out of the 25 tested samples.
+
+Needless to say, but this goes to **disclaimer**: This is, of course, experimental code. Everything still needs a little bit of refactoring and general polishing. Currently, the Fuzzer is more solid than the offline analyzer scripts, and, between those, the `an_packets.py` script is really not in the best shape it could have been. With a little patience for reading the code, though, it's definetely usable and useful. So, yeah, borrowing from the MIT License (which captures this in a more direct and concise way): "THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED (...)".
+
 
 ## Installation
 ### Option 1: Vagrant VM
@@ -32,6 +35,16 @@ vagrant ssh
 ```
 
 You can now jump to [Using FuzzCoAP](#using-fuzzcoap).
+Ps.: Before distributing the VM usign Vagrant Cloud, I missed one update from the Scapy patch and forgot to install one extra dependency; so:
+```sh
+$ cd scapy/
+# Copy and apply relevant patches (of course the first argument here needs to be changed accordingly)
+$ cp ~/fuzzcoap/001-Scapy-for-CoAP-and-Additional-Volatiles-for-Fuzzing.patch .
+$ git apply 001-Scapy-for-CoAP-and-Additional-Volatiles-for-Fuzzing.patch
+$ sudo python setup.py install
+
+$ sudo pip install pygdbmi
+```
 
 - To gracefully shut down the VM:
 ```
@@ -79,6 +92,10 @@ $ git checkout 6db9cf9fb9d4b7aa148975373b185ab6da2afcf9
 $ cp ~/fuzzcoap/001-Scapy-for-CoAP-and-Additional-Volatiles-for-Fuzzing.patch .
 $ git apply 001-Scapy-for-CoAP-and-Additional-Volatiles-for-Fuzzing.patch
 $ sudo python setup.py install
+```
+[pygdbmi](https://pypi.org/project/pygdbmi/), which we use to interface with `gdb` in `an_crashlist.py`:
+```sh
+sudo pip install pygdbmi
 ```
 
 You should be good to go.
@@ -138,4 +155,35 @@ $ ls -lht out_r/cantcoap-server/1/
 ```
 
 ### Offline Analysis
-...TODO basic tutorial.
+#### Distinguishing Failures and Identifying Root Causes
+To be able to distinguish between failures, we assign failure identificators, composed by filename|line_no|function_name, based on the deepest frame from the stacktrace from which we can extract a filename. Using this identifier we can find out which failures are duplicated and which ones are unique failures.
+
+`an_crashlist`: parses the `crashlist.log` file and, for each test case number in there, reads the corresponding `core` file (if available). Then, by interfacing with the `gdb` debugger, loads the SUT binary configured together with the core file, obtaining the stacktrace from a given failure. Example:
+
+```sh
+python an_crashlist.py -t contiki-native-erbium-plugtest -d output/contiki-ng-er/
+```
+
+`an_target`: parses the `target.log` file. Since its format is dependent on the SUT (mainly the SUT programming language), the stacktrace format differs between them. Similarly to the previous one, is able to assign a failure identificator to each failure found, based on the stacktrace parsed. Example:
+
+```sh
+python an_target.py -t canopus-server -d out/canopus-test/
+```
+
+#### Reproducing Failures
+`an_packets`: Reproduces each failure from a specified input list of test case numbers by replaying the packets related to each of those test cases to the SUT. Example:
+
+In Terminal 1, start the SUT:
+```sh
+python /home/vagrant/coap-apps/CoAPthon/coapserver.py
+```
+
+In Terminal 2, run the analyzer script (`sudo` required by Scapy to exchange packets):
+```sh
+sudo python an_packets.py -t coapthon-server -d out/coapthon-test/
+```
+
+#### Extracting Fuzzing Campaign Execution Metrics
+`tr.csv`: Template Results. Lists all templates used in the campaign (note that the components of the Template Details varies between different engines) together with the number of crashes, number of TCs generated, number of TCs actually executed and the time taken to run that template.
+
+`ftc.csv`: Failed Test Cases. List all TCs in which a failure was detected, containing the following fields: Option Name, Template Details and TC Number. Since the reported TC is the one in which the crash was detected, not the one which actually caused the SUT to crash, what we do is to [manually] merge this information with the information obtained through either `an_crashlist` or `an_target` to obtain an accurate piece.
