@@ -3,6 +3,7 @@ from collections import OrderedDict
 from target_list import *
 
 from scapy.all import *
+from scapy.contrib.coap import *
 
 # USER: Target runs on IPv6?
 TARGET_IPV6 = False
@@ -51,6 +52,39 @@ K_GEN = 50 # Number of TCs for the <Format>Random packet templates/generators (G
 
 # USER: Debug parameters
 GEN_ALL = False # Generates all *rs*, *rr* and *ss* TCs (Generational Fuzzer)
+
+# USER: an_packets*.py parameters
+AN_PACKETS_LOWER_BOUND = 0 # Try to reproduce from TCs starting at this number
+AN_PACKETS_SUT_BETWEEN_LAST2SUT_AND_LAST2URI = False # Restart SUT before trying the "last sent to uri" packets
+AN_PACKETS_TIME_TO_REPRODUCE = 0.00005 # Timeout for each packet sent to the SUT
+AN_PACKETS_TIME_TO_HEARTBEAT = 1 # Timeout for the heartbeat packets sent to the SUT
+AN_PACKETS_LIBCOAP_HEARTBEAT = False # Send heartbeat packets with libcoap `coap-client` instead of scapy
+AN_PACKETS_TRY_HEARTBEAT_TIMES = 1 # Number of heartbeat tries
+AN_PACKETS_RAND_SRC = False # Randomize src port (TCs and heartbeats) and msg_id (heartbeats)
+if AN_PACKETS_RAND_SRC:
+    COAP_AUT_DEFAULT_SRC_PORT = RandShort()
+    COAP_AUT_DEFAULT_SRC_MSG_ID = RandShort()
+else:
+    COAP_AUT_DEFAULT_SRC_MSG_ID = 0
+AN_PACKETS_SEND_HEARTBEAT_AFTER_EVERY_UNANSWERED_TC = False # Self explanatory
+AN_PACKETS_TRY_ALL_RELATED_TCS_BEFORE_CONFIRMING_REPRODUCIBILITY = True # Self explanatory
+
+def an_heartbeat(heartbeat_path):
+    if AN_PACKETS_LIBCOAP_HEARTBEAT:
+        for i in range(AN_PACKETS_TRY_HEARTBEAT_TIMES):
+            resp = subprocess.check_output(["coap-client", "-B", str(AN_PACKETS_TIME_TO_HEARTBEAT * (i+1)), "-v", "7", "-m", "get", "coap://localhost/.well-known/core"], preexec_fn=demote(1000, 1000))
+            if 'response' in resp:
+                return True
+    else:
+        for i in range(AN_PACKETS_TRY_HEARTBEAT_TIMES):
+            if not TARGET_IPV6:
+                resp = sr1(IP(dst=COAP_AUT_DEFAULT_DST_HOST)/UDP(sport=COAP_AUT_DEFAULT_SRC_PORT, dport=COAP_AUT_DEFAULT_DST_PORT)/CoAP(type=0, code=1, msg_id=COAP_AUT_DEFAULT_SRC_MSG_ID, options=heartbeat_path), timeout=AN_PACKETS_TIME_TO_HEARTBEAT, verbose=0)
+            else:
+                resp = sr1(IPv6(dst=COAP_AUT_DEFAULT_DST_HOST)/UDP(sport=COAP_AUT_DEFAULT_SRC_PORT, dport=COAP_AUT_DEFAULT_DST_PORT)/CoAP(type=0, code=1, msg_id=COAP_AUT_DEFAULT_SRC_MSG_ID, options=heartbeat_path), timeout=AN_PACKETS_TIME_TO_HEARTBEAT, verbose=0)
+            if resp and ('IPerror' not in resp):
+                # Response actually came from target, and not from IP stack (ICMP error dest/port unreachable)
+                return True
+    return False
 
 # Start: https://stackoverflow.com/a/3685352
 class ALIGN:
